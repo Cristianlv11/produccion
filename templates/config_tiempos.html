@@ -1,0 +1,326 @@
+{% extends "base.html" %}
+
+{% block content %}
+<style>
+.tp-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.tp-head h1 { margin: 0 0 4px; }
+.tp-head p { margin: 0; color: var(--text-muted); font-size: 14px; }
+.tp-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.tp-tools select { height: 40px; min-width: 260px; padding: 0 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 15px; background: white; }
+.tp-btn { height: 40px; padding: 0 14px; border-radius: 6px; border: 1px solid #cbd5e1; background: white; color: #334155; font-weight: 600; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; }
+.tp-btn.primary { background: var(--primary); border-color: var(--primary); color: white; }
+.tp-btn:disabled { opacity: .5; cursor: not-allowed; }
+.tp-sum { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 18px; }
+.tp-stat { background: white; border-radius: 8px; box-shadow: var(--shadow-sm); border: 1px solid var(--border-color); padding: 12px 14px; }
+.tp-stat span { display: block; font-size: 12px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: .02em; }
+.tp-stat strong { font-size: 22px; color: var(--text-main); }
+.tp-stat input { width: 70px; height: 30px; border: 1px solid #cbd5e1; border-radius: 6px; padding: 0 6px; font-size: 16px; font-weight: 700; }
+.tp-proc { background: white; border-radius: 8px; box-shadow: var(--shadow-sm); border: 1px solid var(--border-color); margin-bottom: 16px; overflow: hidden; }
+.tp-proc.inactivo { opacity: .6; }
+.tp-proc-head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: #f0f7f2; border-bottom: 1px solid var(--border-color); flex-wrap: wrap; }
+.tp-proc-head input.nombre { flex: 1; min-width: 200px; font-size: 16px; font-weight: 700; border: 1px solid transparent; background: transparent; padding: 4px 6px; border-radius: 4px; color: var(--primary-hover); }
+.tp-proc-head input.nombre:hover, .tp-proc-head input.nombre:focus { border-color: #cbd5e1; background: white; }
+.tp-proc-head .subtotal { font-size: 13px; color: var(--text-muted); font-weight: 600; }
+.tp-wrap { overflow-x: auto; }
+table.tp { width: 100%; border-collapse: collapse; font-size: 14px; min-width: 900px; }
+table.tp th { text-align: left; font-size: 12px; color: var(--text-muted); font-weight: 700; padding: 8px 8px; border-bottom: 1px solid var(--border-color); white-space: nowrap; }
+table.tp td { padding: 4px 8px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
+table.tp tr.inactivo td { color: #94a3b8; }
+table.tp tr.inactivo input, table.tp tr.inactivo select { color: #94a3b8; }
+table.tp input, table.tp select { width: 100%; height: 32px; box-sizing: border-box; border: 1px solid #e2e8f0; border-radius: 5px; padding: 0 7px; font-size: 14px; background: white; }
+table.tp input:focus, table.tp select:focus { border-color: var(--primary); outline: none; }
+table.tp input.num { text-align: right; }
+table.tp input.falta { border-color: #f59e0b; background: #fffbeb; }
+.col-nombre { min-width: 260px; }
+.col-num { width: 105px; }
+.col-real { width: 120px; font-size: 13px; color: var(--text-muted); white-space: nowrap; }
+.col-real .alerta { color: #b45309; font-weight: 700; }
+.col-act { width: 70px; text-align: center; }
+.col-estado { width: 70px; font-size: 12px; white-space: nowrap; }
+.ok { color: #15803d; } .err { color: #b91c1c; } .guardando { color: var(--text-muted); }
+tr.nueva td { background: #fafafa; }
+.tp-empty { padding: 40px; text-align: center; color: var(--text-muted); background: white; border-radius: 8px; border: 1px dashed #cbd5e1; }
+.tp-help { font-size: 13px; color: var(--text-muted); margin: -6px 0 14px; }
+.tp-switch { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-muted); cursor: pointer; }
+#tpStatus { min-height: 20px; font-weight: 700; margin-bottom: 8px; }
+@media (max-width: 768px) {
+  table.tp { min-width: 0; }
+  table.tp td { gap: 10px; }
+  table.tp td::before { flex: 0 0 120px; }
+  table.tp td.col-real:empty, table.tp td.col-estado:empty, table.tp tr.nueva td.col-real { display: none; }
+  .col-nombre, .col-num, .col-real, .col-act, .col-estado { width: 100%; min-width: 0; }
+  .col-act { justify-content: space-between; }
+  table.tp input[type="checkbox"] { width: 22px; height: 22px; flex: 0 0 22px; }
+}
+.tp-sum[hidden], .tp-help[hidden], .tp-proc[hidden], tr[hidden] { display: none !important; }
+</style>
+
+<div class="tp-head">
+  <div>
+    <h1>Tiempos por producto</h1>
+    <p>Actividades, minutos por unidad y costos de cada producto. Los cambios se guardan al salir de cada casilla.</p>
+  </div>
+  <div class="tp-tools">
+    <select id="selProducto" aria-label="Producto"><option value="">Cargando productos...</option></select>
+    <button class="tp-btn" id="btnNuevoProceso" disabled>+ Proceso</button>
+    <a class="tp-btn primary" id="btnExportar" href="#" aria-disabled="true">Exportar a Excel</a>
+  </div>
+</div>
+
+<div id="tpStatus"></div>
+
+<div id="tpResumen" class="tp-sum" hidden>
+  <div class="tp-stat"><span>Tiempo de ciclo</span><strong id="sumCiclo">0</strong> min</div>
+  <div class="tp-stat"><span>Actividades activas</span><strong id="sumActivas">0</strong></div>
+  <div class="tp-stat"><span>Sin tiempo cargado</span><strong id="sumFaltan">0</strong></div>
+  <div class="tp-stat"><span>Operarios</span><input id="inpOperarios" type="number" min="1" value="1"></div>
+  <div class="tp-stat"><span>Meta unidades / día</span><strong id="sumMeta">0</strong></div>
+</div>
+
+<p class="tp-help" id="tpAyuda" hidden>
+  <label class="tp-switch"><input type="checkbox" id="chkInactivas"> Mostrar inactivas y procesos vacíos</label>
+  &nbsp;·&nbsp; «Real» es la mediana de lo que registran los operarios; se marca en naranja si se aleja más de 30 % del tiempo cargado (con 5 o más registros).
+</p>
+
+<div id="tpLista"><div class="tp-empty">Seleccione un producto para ver sus actividades.</div></div>
+
+<script>
+const estado = { maquinas: [], operarios: [], maquina: null, procesos: [], jornada: 535, recienCreados: new Set() };
+const $ = (id) => document.getElementById(id);
+
+function esc(t) {
+  return String(t ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+function num(v) { const n = parseFloat(String(v ?? "").replace(",", ".")); return isNaN(n) ? null : n; }
+function fmt(n, d = 2) { return n == null ? "" : Number(n).toLocaleString("es-CO", { maximumFractionDigits: d }); }
+function aviso(texto, tipo) { const s = $("tpStatus"); s.textContent = texto || ""; s.className = tipo || ""; }
+
+async function pedir(url, metodo = "GET", datos) {
+  const opciones = { method: metodo, headers: {} };
+  if (datos !== undefined) { opciones.headers["Content-Type"] = "application/json"; opciones.body = JSON.stringify(datos); }
+  const r = await fetch(url, opciones);
+  const texto = await r.text();
+  let json = {};
+  try { json = texto ? JSON.parse(texto) : {}; } catch (_) { json = { detail: texto }; }
+  if (!r.ok) throw new Error(json.detail || "Error al guardar");
+  return json;
+}
+
+function opcionesOperario(sel) {
+  let h = '<option value="">—</option>';
+  for (const o of estado.operarios) h += `<option value="${o.id}" ${o.id === sel ? "selected" : ""}>${esc(o.nombre)}</option>`;
+  return h;
+}
+
+function filaActividad(a) {
+  const real = a.real_mediana == null ? "—"
+    : `${fmt(a.real_mediana)} <small>(${a.real_registros})</small>`;
+  const alerta = a.real_mediana != null && a.real_registros >= 5 && a.min_unidad
+    && Math.abs(a.real_mediana - a.min_unidad) / a.min_unidad > 0.3;
+  return `
+    <tr data-id="${a.id}" class="${a.activo ? "" : "inactivo"}" ${!a.activo && !$("chkInactivas").checked ? "hidden" : ""}>
+      <td class="col-nombre" data-label="Actividad"><input data-campo="nombre" value="${esc(a.nombre)}"></td>
+      <td class="col-num" data-label="Min / unidad"><input data-campo="min_unidad" class="num ${a.min_unidad ? "" : "falta"}" inputmode="decimal" value="${a.min_unidad ?? ""}" placeholder="min"></td>
+      <td class="col-real" data-label="Real (registros)"><span class="${alerta ? "alerta" : ""}">${real}</span></td>
+      <td class="col-num" data-label="Costo MO / und"><input data-campo="costo_mo_unidad" class="num" inputmode="decimal" value="${a.costo_mo_unidad || ""}" placeholder="$"></td>
+      <td data-label="Máquina / herramienta"><input data-campo="herramienta" value="${esc(a.herramienta)}" placeholder="Máquina / herramienta"></td>
+      <td data-label="Responsable"><select data-campo="operario_id">${opcionesOperario(a.operario_id)}</select></td>
+      <td class="col-act" data-label="Activa"><input type="checkbox" data-campo="activo" ${a.activo ? "checked" : ""} title="Activa"></td>
+      <td class="col-estado"></td>
+    </tr>`;
+}
+
+function filaNueva(procesoId) {
+  return `
+    <tr class="nueva" data-proceso="${procesoId}">
+      <td class="col-nombre" data-label="Nueva actividad"><input data-nuevo="nombre" placeholder="+ Nueva actividad"></td>
+      <td class="col-num" data-label="Min / unidad"><input data-nuevo="min_unidad" class="num" inputmode="decimal" placeholder="min"></td>
+      <td class="col-real"></td>
+      <td class="col-num" data-label="Costo MO / und"><input data-nuevo="costo_mo_unidad" class="num" inputmode="decimal" placeholder="$"></td>
+      <td data-label="Máquina / herramienta"><input data-nuevo="herramienta" placeholder="Máquina / herramienta"></td>
+      <td data-label="Responsable"><select data-nuevo="operario_id">${opcionesOperario(null)}</select></td>
+      <td class="col-act"><button class="tp-btn primary" data-agregar style="height:32px">Agregar</button></td>
+      <td class="col-estado"></td>
+    </tr>`;
+}
+
+function pintar() {
+  const lista = $("tpLista");
+  const verInactivas = $("chkInactivas").checked;
+  if (!estado.maquina) { lista.innerHTML = '<div class="tp-empty">Seleccione un producto para ver sus actividades.</div>'; return; }
+  if (!estado.procesos.length) { lista.innerHTML = '<div class="tp-empty">Este producto no tiene procesos. Use «+ Proceso» para crear el primero.</div>'; }
+  else {
+    lista.innerHTML = estado.procesos.map((p) => `
+      <section class="tp-proc ${p.activo ? "" : "inactivo"}" data-proceso="${p.id}" ${(!p.activo || !p.actividades.length) && !verInactivas && !estado.recienCreados.has(p.id) ? "hidden" : ""}>
+        <div class="tp-proc-head">
+          <input class="nombre" data-proc-campo="nombre" value="${esc(p.nombre)}" aria-label="Nombre del proceso">
+          <span class="subtotal" data-subtotal></span>
+          <label class="tp-switch"><input type="checkbox" data-proc-campo="activo" ${p.activo ? "checked" : ""}> Activo</label>
+          <span class="col-estado" data-proc-estado></span>
+        </div>
+        <div class="tp-wrap"><table class="tp">
+          <thead><tr><th>Actividad</th><th>Min / unidad</th><th>Real (registros)</th><th>Costo MO / und</th><th>Máquina / herramienta</th><th>Responsable</th><th>Activa</th><th></th></tr></thead>
+          <tbody>${p.actividades.map(filaActividad).join("")}${filaNueva(p.id)}</tbody>
+        </table></div>
+      </section>`).join("");
+  }
+  recalcular();
+}
+
+function recalcular() {
+  let ciclo = 0, activas = 0, faltan = 0;
+  for (const p of estado.procesos) {
+    let sub = 0;
+    for (const a of p.actividades) {
+      if (!a.activo || !p.activo) continue;
+      activas++;
+      if (a.min_unidad) sub += a.min_unidad; else faltan++;
+    }
+    ciclo += sub;
+    const el = document.querySelector(`section[data-proceso="${p.id}"] [data-subtotal]`);
+    if (el) el.textContent = `${fmt(sub)} min`;
+  }
+  const operarios = Math.max(1, parseInt($("inpOperarios").value) || 1);
+  $("sumCiclo").textContent = fmt(ciclo);
+  $("sumActivas").textContent = activas;
+  $("sumFaltan").textContent = faltan;
+  $("sumMeta").textContent = ciclo ? fmt((operarios * estado.jornada) / ciclo, 1) : "—";
+}
+
+function buscarActividad(id) {
+  for (const p of estado.procesos) for (const a of p.actividades) if (a.id === id) return a;
+  return null;
+}
+
+async function cargarProducto(id) {
+  aviso("Cargando...", "guardando");
+  const datos = await pedir(`/config/tiempos?maquina_id=${id || 0}`);
+  estado.operarios = datos.operarios;
+  estado.maquina = datos.maquina;
+  estado.procesos = datos.procesos;
+  estado.jornada = datos.jornada_min;
+  $("tpResumen").hidden = !estado.maquina;
+  $("tpAyuda").hidden = !estado.maquina;
+  $("btnNuevoProceso").disabled = !estado.maquina;
+  const exp = $("btnExportar");
+  if (estado.maquina) { exp.href = `/config/tiempos/exportar?maquina_id=${estado.maquina.id}`; exp.removeAttribute("aria-disabled"); }
+  else { exp.href = "#"; exp.setAttribute("aria-disabled", "true"); }
+  try { localStorage.setItem("tp_producto", id || ""); } catch (_) {}
+  pintar();
+  aviso("");
+}
+
+async function guardarActividad(input) {
+  const tr = input.closest("tr");
+  const id = parseInt(tr.dataset.id);
+  const campo = input.dataset.campo;
+  const a = buscarActividad(id);
+  let valor = input.type === "checkbox" ? input.checked : input.value;
+  if (campo === "operario_id") valor = valor ? parseInt(valor) : null;
+  if (campo === "min_unidad" || campo === "costo_mo_unidad") {
+    if (String(valor).trim() === "" && campo === "min_unidad") { input.value = a.min_unidad ?? ""; return; }
+    valor = num(valor);
+    if (valor == null) { tr.querySelector(".col-estado").innerHTML = '<span class="err">Número inválido</span>'; return; }
+  }
+  if (campo !== "activo" && String(valor ?? "") === String(a[campo] ?? "")) return;
+  const celda = tr.querySelector(".col-estado");
+  celda.innerHTML = '<span class="guardando">Guardando…</span>';
+  try {
+    await pedir(`/config/tiempos/actividad/${id}`, "PUT", { [campo]: valor });
+    a[campo] = valor;
+    if (campo === "activo") { tr.classList.toggle("inactivo", !valor); if (!valor && !$("chkInactivas").checked) tr.hidden = true; }
+    if (campo === "min_unidad") input.classList.remove("falta");
+    celda.innerHTML = '<span class="ok">✓ Guardado</span>';
+    setTimeout(() => { if (celda.textContent.includes("Guardado")) celda.innerHTML = ""; }, 2500);
+    recalcular();
+  } catch (e) {
+    celda.innerHTML = `<span class="err" title="${esc(e.message)}">Error</span>`;
+    aviso(e.message, "err");
+    if (input.type === "checkbox") input.checked = !input.checked; else input.value = a[campo] ?? "";
+  }
+}
+
+async function guardarProceso(input) {
+  const sec = input.closest("section");
+  const id = parseInt(sec.dataset.proceso);
+  const p = estado.procesos.find((x) => x.id === id);
+  const campo = input.dataset.procCampo;
+  const valor = input.type === "checkbox" ? input.checked : input.value.trim();
+  if (campo === "nombre" && valor === p.nombre) return;
+  const celda = sec.querySelector("[data-proc-estado]");
+  celda.innerHTML = '<span class="guardando">Guardando…</span>';
+  try {
+    await pedir(`/config/tiempos/proceso/${id}`, "PUT", { [campo]: valor });
+    p[campo] = valor;
+    if (campo === "activo") { sec.classList.toggle("inactivo", !valor); if (!valor && !$("chkInactivas").checked) sec.hidden = true; }
+    celda.innerHTML = '<span class="ok">✓ Guardado</span>';
+    recalcular();
+  } catch (e) {
+    celda.innerHTML = '<span class="err">Error</span>';
+    aviso(e.message, "err");
+    if (input.type === "checkbox") input.checked = !valor; else input.value = p.nombre;
+  }
+}
+
+async function agregarActividad(boton) {
+  const tr = boton.closest("tr");
+  const datos = { proceso_id: parseInt(tr.dataset.proceso) };
+  tr.querySelectorAll("[data-nuevo]").forEach((el) => { datos[el.dataset.nuevo] = el.value; });
+  datos.operario_id = datos.operario_id ? parseInt(datos.operario_id) : null;
+  if (!datos.nombre.trim()) { aviso("Escriba el nombre de la actividad", "err"); return; }
+  if (num(datos.min_unidad) == null) { aviso("Escriba los minutos por unidad de la actividad nueva", "err"); return; }
+  boton.disabled = true;
+  try {
+    const r = await pedir("/config/tiempos/actividad", "POST", datos);
+    await cargarProducto(estado.maquina.id);
+    aviso(`Actividad agregada${r.ordenes_actualizadas ? ` y sumada a ${r.ordenes_actualizadas} orden(es) abierta(s)` : ""}.`, "ok");
+  } catch (e) {
+    aviso(e.message, "err");
+    boton.disabled = false;
+  }
+}
+
+async function nuevoProceso() {
+  const nombre = prompt(`Nombre del nuevo proceso para ${estado.maquina.nombre}:`);
+  if (!nombre || !nombre.trim()) return;
+  try {
+    const r = await pedir("/config/tiempos/proceso", "POST", { maquina_id: estado.maquina.id, nombre: nombre.trim() });
+    estado.recienCreados.add(r.id);
+    await cargarProducto(estado.maquina.id);
+    aviso("Proceso creado. Agregue sus actividades abajo.", "ok");
+    document.querySelector(`section[data-proceso="${r.id}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  } catch (e) { aviso(e.message, "err"); }
+}
+
+document.addEventListener("change", (ev) => {
+  const el = ev.target;
+  if (el.closest("tr[data-id]") && el.dataset.campo) guardarActividad(el);
+  else if (el.dataset.procCampo) guardarProceso(el);
+});
+document.addEventListener("click", (ev) => {
+  if (ev.target.matches("[data-agregar]")) agregarActividad(ev.target);
+});
+document.addEventListener("keydown", (ev) => {
+  if (ev.key === "Enter" && ev.target.closest("tr.nueva")) { ev.preventDefault(); agregarActividad(ev.target.closest("tr").querySelector("[data-agregar]")); }
+  else if (ev.key === "Enter" && ev.target.tagName === "INPUT") ev.target.blur();
+});
+$("selProducto").addEventListener("change", (ev) => cargarProducto(ev.target.value).catch((e) => aviso(e.message, "err")));
+$("btnNuevoProceso").addEventListener("click", nuevoProceso);
+$("chkInactivas").addEventListener("change", pintar);
+$("inpOperarios").addEventListener("input", recalcular);
+$("btnExportar").addEventListener("click", (ev) => { if (!estado.maquina) ev.preventDefault(); });
+
+(async () => {
+  try {
+    const datos = await pedir("/config/tiempos?maquina_id=0");
+    estado.maquinas = datos.maquinas;
+    const sel = $("selProducto");
+    sel.innerHTML = '<option value="">Seleccione un producto…</option>' + datos.maquinas
+      .map((m) => `<option value="${m.id}">${esc(m.nombre)}${m.activo ? "" : " (inactivo)"}</option>`).join("");
+    let guardado = "";
+    try { guardado = localStorage.getItem("tp_producto") || ""; } catch (_) {}
+    if (guardado && datos.maquinas.some((m) => String(m.id) === guardado)) { sel.value = guardado; await cargarProducto(guardado); }
+  } catch (e) { aviso(e.message, "err"); }
+})();
+</script>
+{% endblock %}

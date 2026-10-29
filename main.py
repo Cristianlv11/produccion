@@ -24,6 +24,7 @@ from routers.bonos import router as bonos_router
 from routers.admin_tools import router as admin_tools_router
 from routers import planificador
 from routers import configuracion
+from routers.tiempos import router as tiempos_router
 from routers import admin_panel
 from routers.tickets import router as tickets_router
 from routers.excel_ops import router as excel_ops_router
@@ -182,6 +183,7 @@ app.include_router(metricas_router)
 app.include_router(bonos_router)
 app.include_router(admin_tools_router)
 app.include_router(configuracion.router)
+app.include_router(tiempos_router)
 from routers.dashboard import router as dashboard_router
 app.include_router(dashboard_router)
 app.include_router(admin_panel.router)
@@ -338,6 +340,11 @@ def startup():
     c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS telefono TEXT")
     c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS debe_cambiar_password BOOLEAN DEFAULT FALSE")
     c.execute("ALTER TABLE operarios ADD COLUMN IF NOT EXISTS activo BOOLEAN DEFAULT TRUE")
+    c.execute("ALTER TABLE maquinas ADD COLUMN IF NOT EXISTS activo BOOLEAN DEFAULT TRUE")
+    c.execute("ALTER TABLE procesos ADD COLUMN IF NOT EXISTS activo BOOLEAN DEFAULT TRUE")
+    c.execute("ALTER TABLE actividades ADD COLUMN IF NOT EXISTS activo BOOLEAN DEFAULT TRUE")
+    c.execute("ALTER TABLE actividades ADD COLUMN IF NOT EXISTS herramienta TEXT")
+    c.execute("ALTER TABLE actividades ADD COLUMN IF NOT EXISTS operario_responsable_id INTEGER")
 
     c.execute("""
     CREATE TABLE IF NOT EXISTS tickets(

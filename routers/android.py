@@ -445,8 +445,9 @@ def procesos_android(orden_id:int):
     FROM procesos p
     LEFT JOIN actividades a ON a.proceso_id = p.id
     LEFT JOIN orden_actividades oa ON oa.actividad_id = a.id AND oa.orden_id = %s
-    WHERE oa.orden_id = %s 
-       OR (UPPER(p.nombre) = 'OTROS' AND p.maquina_id = (SELECT maquina_id FROM ordenes WHERE id = %s))
+    WHERE COALESCE(p.activo, TRUE) = TRUE
+      AND ((oa.orden_id = %s AND COALESCE(a.activo, TRUE) = TRUE)
+       OR (UPPER(p.nombre) = 'OTROS' AND p.maquina_id = (SELECT maquina_id FROM ordenes WHERE id = %s)))
     """, (orden_id, orden_id, orden_id))
     rows = c.fetchall() or []
 
@@ -464,7 +465,10 @@ def actividades_android(orden:int, proceso:int):
     SELECT a.id,a.nombre
     FROM orden_actividades oa
     JOIN actividades a ON a.id=oa.actividad_id
+    JOIN procesos p ON p.id=a.proceso_id
     WHERE oa.orden_id=%s AND a.proceso_id=%s
+      AND COALESCE(a.activo, TRUE) = TRUE
+      AND COALESCE(p.activo, TRUE) = TRUE
     """,(orden,proceso))
     rows = c.fetchall() or []
 

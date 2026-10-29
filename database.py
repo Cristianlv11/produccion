@@ -72,6 +72,8 @@ def sincronizar_actividades_ordenes_abiertas(cursor, orden_id=None):
         JOIN procesos p ON p.maquina_id = o.maquina_id
         JOIN actividades a ON a.proceso_id = p.id
         WHERE o.estado != 'CERRADA'
+        AND COALESCE(p.activo, TRUE) = TRUE
+        AND COALESCE(a.activo, TRUE) = TRUE
         {filtro_orden}
         AND NOT EXISTS (
             SELECT 1
