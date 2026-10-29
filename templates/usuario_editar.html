@@ -25,7 +25,6 @@
                                 <label class="form-label">Rol del Usuario</label>
                                 <select class="form-select" name="role">
                                     <option value="admin" {% if usuario[2] == 'admin' %}selected{% endif %}>Admin</option>
-                                    <option value="supervisor" {% if usuario[2] == 'supervisor' %}selected{% endif %}>Supervisor</option>
                                     <option value="jefe_tickets" {% if usuario[2] == 'jefe_tickets' %}selected{% endif %}>Jefe de Tickets</option>
                                     <option value="operario" {% if usuario[2] == 'operario' %}selected{% endif %}>Operario</option>
                                 </select>

@@ -17,6 +17,13 @@
     {% endif %}
 
     <!-- Mensajes de éxito -->
+    {% if ok %}
+    <div class="alert alert-success alert-dismissible fade show">
+        {{ ok }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+    {% endif %}
+
     {% if request.query_params.get('creados') is not none %}
     <div class="alert alert-success alert-dismissible fade show">
         Usuarios creados correctamente: {{ request.query_params.get('creados') }}
@@ -55,22 +62,28 @@
                         <div class="row">
                             <div class="col-md-6 mb-3">
                                 <label class="form-label">Rol</label>
-                                <select class="form-select" name="role">
-                                    <option value="admin">Admin</option>
-                                    <option value="supervisor">Supervisor</option>
+                                <select class="form-select" name="role" id="selRol">
+                                    <option value="operario" selected>Operario</option>
                                     <option value="jefe_tickets">Jefe de Tickets</option>
-                                    <option value="operario">Operario</option>
+                                    <option value="admin">Admin</option>
                                 </select>
                             </div>
-                            <div class="col-md-6 mb-3">
-                                <label class="form-label">Vincular a Operario</label>
-                                <select class="form-select" name="operario_id">
-                                    <option value="">Sin operario</option>
+                            <div class="col-md-6 mb-3" id="campoOperario">
+                                <label class="form-label">Operario</label>
+                                <select class="form-select" name="operario_id" id="selOperario">
+                                    <option value="">Seleccione el operario…</option>
                                     {% for op in operarios %}
                                     <option value="{{ op[0] }}">{{ op[1] }}</option>
                                     {% endfor %}
+                                    <option value="nuevo">+ Operario nuevo (no está en la lista)</option>
                                 </select>
+                                <div class="form-text">Solo aparecen operarios que todavía no tienen usuario.</div>
                             </div>
+                        </div>
+
+                        <div class="mb-3" id="campoOperarioNuevo" style="display:none;">
+                            <label class="form-label">Nombre completo del operario nuevo</label>
+                            <input type="text" class="form-control" name="operario_nuevo" placeholder="Ej: Juan Pérez">
                         </div>
 
                         <div class="mb-3">
@@ -133,9 +146,9 @@
                     </thead>
                     <tbody>
                         {% for u in usuarios %}
-                        <tr>
+                        <tr {% if not u[7] %}style="opacity:.55"{% endif %}>
                             <td>{{ u[0] }}</td>
-                            <td class="fw-bold">{{ u[1] }}</td>
+                            <td class="fw-bold">{{ u[1] }}{% if not u[7] %} <span class="badge bg-secondary">Inactivo</span>{% endif %}</td>
                             <td>
                                 {% if u[2] == 'admin' %}
                                     <span class="badge bg-danger">Admin</span>
@@ -168,12 +181,21 @@
                                 <a href="/usuarios/editar/{{ u[0] }}" class="btn btn-sm btn-outline-primary" title="Editar Usuario">
                                     ✏️
                                 </a>
-                                <form action="/usuarios/eliminar/{{ u[0] }}" method="POST" style="display:inline;" onsubmit="return confirm('¿Seguro que deseas eliminar a este usuario?');">
+                                {% if u[7] %}
+                                <form action="/usuarios/eliminar/{{ u[0] }}" method="POST" style="display:inline;" onsubmit="return confirm('¿Seguro que deseas eliminar a este usuario? Si tiene historial se desactivará en vez de borrarse.');">
     <input type="hidden" name="csrf_token" value="{{ request.session.csrf_token }}">
                                     <button type="submit" class="btn btn-sm btn-outline-danger" title="Eliminar Usuario">
                                         🗑️
                                     </button>
                                 </form>
+                                {% else %}
+                                <form action="/usuarios/reactivar/{{ u[0] }}" method="POST" style="display:inline;">
+    <input type="hidden" name="csrf_token" value="{{ request.session.csrf_token }}">
+                                    <button type="submit" class="btn btn-sm btn-outline-success" title="Reactivar Usuario">
+                                        Reactivar
+                                    </button>
+                                </form>
+                                {% endif %}
                             </td>
                         </tr>
                         {% endfor %}
@@ -183,4 +205,20 @@
         </div>
     </div>
 </div>
+<script>
+(function () {
+    const rol = document.getElementById('selRol');
+    const op = document.getElementById('selOperario');
+    const campoOp = document.getElementById('campoOperario');
+    const campoNuevo = document.getElementById('campoOperarioNuevo');
+    function actualizar() {
+        const esOperario = rol.value === 'operario';
+        campoOp.style.display = esOperario ? '' : 'none';
+        campoNuevo.style.display = esOperario && op.value === 'nuevo' ? '' : 'none';
+    }
+    rol.addEventListener('change', actualizar);
+    op.addEventListener('change', actualizar);
+    actualizar();
+})();
+</script>
 {% endblock %}
