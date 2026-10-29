@@ -1,0 +1,8 @@
+{
+  "versionCode": 3,
+  "versionName": "1.2",
+  "apk": "produccionhmi-3.apk",
+  "sha256": "d07e300f954aab9518b161c5dc4947f11f507a77c1b8a1fc1555c9311bcbd69b",
+  "notes": "Muestra el número de orden con el nombre de la máquina. La app ahora se actualiza sola.",
+  "forceUpdate": false
+}
