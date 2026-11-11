@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-title">
+  <div>
+    <a class="volver" href="/configuracion">&larr; Configuración</a>
+    <h1>Registros para revisar</h1>
+    <p>Registros de los últimos 4 meses que tienen algo raro y pueden dañar las métricas y los bonos. Corrígelos o confirma que están bien.</p>
+  </div>
+</div>
+
+{% if not filas %}
+  <div class="vacio"><div class="vacio-icono">✅</div><h2>No hay registros con problemas</h2><p>Todo cuadra en los últimos 4 meses.</p></div>
+{% else %}
+<div class="section" style="padding: 8px 8px 12px">
+  <p class="ayuda" style="margin: 8px 8px 12px">{{ filas|length }} registro{{ 's' if filas|length != 1 }} para revisar. «Corregir» abre el editor en ese día y operario, con el registro resaltado.</p>
+  <div class="table-container" style="overflow-x:auto">
+    <table class="data-table">
+      <thead><tr><th>#</th><th>Operario</th><th>Actividad</th><th>Inicio</th><th>Fin</th><th class="num">Cant.</th><th>Qué pasa</th><th></th></tr></thead>
+      <tbody>
+      {% for r in filas %}
+        <tr>
+          <td class="muted">{{ r.id }}</td>
+          <td><b>{{ r.operario }}</b></td>
+          <td>{{ r.actividad }}<br><small class="muted">{{ r.producto }}</small></td>
+          <td>{{ r.inicio }}</td>
+          <td>{{ r.fin }}</td>
+          <td class="num">{{ r.cantidad }}</td>
+          <td>{% for m in r.motivos %}<div class="motivo">⚠️ {{ m }}</div>{% endfor %}</td>
+          <td><a class="btn btn-sm" href="/admin_tools/editar_registros?operario={{ r.operario_id }}&desde={{ r.fecha }}&hasta={{ r.fecha }}&registro={{ r.id }}">Corregir</a></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+<style>.motivo { font-size: .85rem; min-width: 220px; }</style>
+{% endif %}
+{% endblock %}

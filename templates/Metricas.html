@@ -58,7 +58,7 @@
   <div class="kpi-card">
     <span class="kpi-title">Horas registradas</span>
     <div class="kpi-value">{{ m.total.horas }}</div>
-    <div class="kpi-help">de {{ m.total.disponibles }} h disponibles</div>
+    <div class="kpi-help">de {{ m.total.disponibles }} h disponibles{% if m.total.horas_indirectas %} · {{ m.total.horas_indirectas }} h sin producir ({{ m.total.indirecto_pct|round|int }}%){% endif %}</div>
   </div>
   <div class="kpi-card">
     <span class="kpi-title">Eficiencia</span>
@@ -83,7 +83,7 @@
       {% set max_h = m.actividades[0].horas if m.actividades else 1 %}
       {% for a in m.actividades %}
         <div class="ranking-fila">
-          <div class="ranking-nombre" title="{{ a.nombre }}">{{ a.nombre }}<small>{{ a.maquina }}</small></div>
+          <div class="ranking-nombre" title="{{ a.nombre }}">{{ a.nombre }}<small>{{ a.maquina }}{% if a.indirecta %} · indirecta{% endif %}</small></div>
           <div class="ranking-barra"><span style="width: {{ (a.horas / max_h * 100) if max_h else 0 }}%"></span></div>
           <div class="ranking-valor">{{ a.horas }} h</div>
         </div>
@@ -102,7 +102,7 @@
     {% for op in m.operarios %}
     <details class="op">
       <summary>
-        <span class="op-nombre">{{ op.nombre }}<small>{{ op.dias_trabajados }} día{{ 's' if op.dias_trabajados != 1 }} · {{ op.registros }} registro{{ 's' if op.registros != 1 }}</small></span>
+        <span class="op-nombre">{{ op.nombre }} <a class="op-ficha" href="/metricas/operario/{{ op.id }}" onclick="event.stopPropagation()">ver ficha</a><small>{{ op.dias_trabajados }} día{{ 's' if op.dias_trabajados != 1 }} · {{ op.registros }} registro{{ 's' if op.registros != 1 }}</small></span>
         <span data-l="Unidades">{{ op.unidades }}</span>
         <span data-l="Horas">{{ op.horas }}</span>
         <span data-l="Eficiencia">{{ pill(op.eficiencia) }}</span>
@@ -124,7 +124,7 @@
               <td class="muted">{{ r.maquina }}{% if r.orden_id %}{{ " · " if r.maquina }}#{{ r.orden_id }}{% endif %}</td>
               <td class="num">{{ r.cantidad }}</td>
               <td class="num">{{ r.horas }}</td>
-              <td>{% if r.cantidad == 0 %}<span class="pill pill-gris" title="Sin unidades terminadas en este registro">en curso</span>{% else %}{{ pill(r.eficiencia) }}{% endif %}</td>
+              <td>{% if r.indirecta %}<span class="pill pill-gris" title="Actividad indirecta: no cuenta en la eficiencia">indirecta</span>{% elif r.cantidad == 0 %}<span class="pill pill-gris" title="Sin unidades terminadas en este registro">en curso</span>{% else %}{{ pill(r.eficiencia) }}{% endif %}</td>
               <td class="muted">{{ r.observacion }}</td>
             </tr>
           {% endfor %}
@@ -141,7 +141,9 @@
   <ul>
     <li><b>Horas registradas:</b> el tiempo de cada registro (de la hora de inicio a la de fin).</li>
     <li><b>Eficiencia:</b> el tiempo que debió tomar según el tiempo estándar de cada actividad, dividido entre el tiempo real. 100% = al ritmo estándar. Verde desde 90%, ámbar desde 70%.</li>
-    <li>Las actividades <b>sin tiempo estándar</b> no se cuentan en la eficiencia (aparecen con «—»), para no bajarla. Se configuran en Configuración › Tiempos por producto.
+    <li>Las actividades <b>indirectas</b> (calibración, limpieza, esperas, daños…) cuentan como tiempo trabajado, pero no entran en la eficiencia ni en los bonos. Se marcan en Configuración › Revisión de estándares.
+      {% if m.indirectas %}<br><span class="muted">Esta semana: {% for i in m.indirectas %}{{ i.nombre }} ({{ i.horas }} h){{ ', ' if not loop.last }}{% endfor %}.</span>{% endif %}</li>
+    <li>Las actividades <b>sin tiempo estándar</b> no se cuentan en la eficiencia (aparecen con «—»), para no bajarla. Se configuran en Configuración › Revisión de estándares.
       {% if m.sin_estandar %}<br><span class="muted">Esta semana sin estándar: {{ m.sin_estandar|join(', ') }}.</span>{% endif %}</li>
     <li>Un registro con <b>0 unidades</b> («en curso») cuenta su tiempo; las unidades se suman cuando se terminan, así que la eficiencia se ve bien en el total de la semana, no registro por registro.</li>
     <li><b>Tiempo registrado:</b> horas registradas frente a las horas disponibles de los días que trabajó cada operario ({{ m.jornada_h }} h por día según el horario de pasadas, sin descansos). Si es bajo, faltó registrar tiempo.</li>

@@ -25,6 +25,7 @@ from routers.admin_tools import router as admin_tools_router
 from routers import configuracion
 from routers.tiempos import router as tiempos_router
 from routers.cortes import router as cortes_router, asegurar_schema_cortes
+from routers.eficiencia import router as eficiencia_router
 from routers.tickets import router as tickets_router
 from routers.excel_ops import router as excel_ops_router
 from routers.inventario import router as inventario_router
@@ -191,6 +192,7 @@ app.include_router(admin_tools_router)
 app.include_router(configuracion.router)
 app.include_router(tiempos_router)
 app.include_router(cortes_router)
+app.include_router(eficiencia_router)
 from routers.dashboard import router as dashboard_router
 app.include_router(dashboard_router)
 app.include_router(tickets_router)

@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-title">
+  <div>
+    <a class="volver" href="/configuracion">&larr; Configuración</a>
+    <h1>Revisión de estándares</h1>
+    <p>Compara el tiempo estándar de cada actividad con lo que de verdad toma según los registros de los últimos {{ dias }} días.</p>
+  </div>
+</div>
+
+<div class="filtros-estado" id="filtros">
+  <button class="chip activo" data-f="revisar">Para revisar <b>{{ (conteo.holgado or 0) + (conteo.exigente or 0) + (conteo.sin_estandar or 0) }}</b></button>
+  <button class="chip" data-f="holgado">Muy holgado <b>{{ conteo.holgado or 0 }}</b></button>
+  <button class="chip" data-f="exigente">Muy exigente <b>{{ conteo.exigente or 0 }}</b></button>
+  <button class="chip" data-f="sin_estandar">Sin estándar <b>{{ conteo.sin_estandar or 0 }}</b></button>
+  <button class="chip" data-f="ok">Bien <b>{{ conteo.ok or 0 }}</b></button>
+  <button class="chip" data-f="indirecta">Indirectas <b>{{ conteo.indirecta or 0 }}</b></button>
+  <button class="chip" data-f="todas">Todas</button>
+  <input id="buscar" class="buscar" placeholder="Buscar producto o actividad…">
+</div>
+
+<details class="section como-se-calcula" style="margin-bottom:16px">
+  <summary>¿Cómo usar esta pantalla?</summary>
+  <ul>
+    <li><b>Muy holgado</b> (eficiencia sobre {{ efic_max }}%): el estándar da mucho más tiempo del que se usa. Infla la eficiencia y paga bonos de más. Mientras no se corrija, esa actividad no paga bono.</li>
+    <li><b>Muy exigente</b> (bajo {{ efic_min }}%): el estándar es tan corto que nadie lo alcanza.</li>
+    <li><b>«Usar real»</b> pone como estándar el tiempo que de verdad se ha tardado. Úsalo cuando haya varios registros; si es poco el historial, mejor tomar el tiempo en la planta y escribirlo a mano.</li>
+    <li>Marca como <b>indirecta</b> la actividad que no produce unidades (calibrar máquinas, limpieza, esperas de material, daños, reuniones). Cuenta como tiempo trabajado, pero no entra en la eficiencia ni en los bonos.</li>
+  </ul>
+</details>
+
+<div id="aviso"></div>
+
+<div class="section" style="padding: 8px 8px 12px">
+  <div class="table-container" style="overflow-x:auto">
+    <table class="data-table tabla-rev">
+      <thead>
+        <tr>
+          <th>Producto / actividad</th>
+          <th class="num">Estándar<br><small>min / und</small></th>
+          <th class="num">Real<br><small>min / und</small></th>
+          <th>Eficiencia</th>
+          <th class="num">Registros</th>
+          <th></th>
+          <th>Indirecta</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for f in filas %}
+        <tr data-id="{{ f.id }}" data-estado="{{ f.estado }}" data-texto="{{ (f.producto ~ ' ' ~ f.proceso ~ ' ' ~ f.actividad)|lower }}" data-con-datos="{{ 1 if f.registros or f.estado == 'sin_estandar' else 0 }}">
+          <td><b>{{ f.actividad }}</b><br><small class="muted">{{ f.producto }} · {{ f.proceso }}</small></td>
+          <td class="num"><input class="inp-min" inputmode="decimal" value="{{ f.min_std if f.min_std is not none else '' }}" placeholder="min" aria-label="Minutos estándar"></td>
+          <td class="num">{% if f.min_real is not none %}{{ f.min_real }}{% else %}<span class="muted">—</span>{% endif %}</td>
+          <td class="col-efic">
+            {% if f.estado == 'indirecta' %}<span class="pill pill-gris">indirecta</span>
+            {% elif f.estado == 'sin_estandar' %}<span class="pill pill-gris">sin estándar</span>
+            {% elif f.eficiencia is none %}<span class="muted">sin datos</span>
+            {% elif f.estado == 'holgado' %}<span class="pill pill-rojo">{{ f.eficiencia }}% · holgado</span>
+            {% elif f.estado == 'exigente' %}<span class="pill pill-ambar">{{ f.eficiencia }}% · exigente</span>
+            {% else %}<span class="pill pill-verde">{{ f.eficiencia }}%</span>{% endif %}
+          </td>
+          <td class="num">{{ f.registros }}<br><small class="muted">{{ f.horas }} h{% if f.ultimo %} · {{ f.ultimo }}{% endif %}</small></td>
+          <td>{% if f.min_real is not none and not f.indirecta %}<button class="btn btn-sm{% if not f.confiable %} btn-light{% endif %}" data-usar="{{ f.min_real }}" title="{% if f.confiable %}Poner {{ f.min_real }} min como estándar{% else %}Pocos registros: confirma antes de usarlo{% endif %}">Usar real</button>{% endif %}</td>
+          <td><input type="checkbox" class="chk-ind" {% if f.indirecta %}checked{% endif %} aria-label="Actividad indirecta"></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <p class="muted" id="vacio" style="text-align:center; padding:24px; display:none">No hay actividades en este filtro.</p>
+  </div>
+</div>
+
+<style>
+.filtros-estado { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:14px; }
+.chip { border:1px solid var(--border-color); background:#fff; border-radius:99px; padding:6px 14px; font:inherit; font-size:.88rem; cursor:pointer; }
+.chip b { margin-left:4px; }
+.chip.activo { background: var(--primary); border-color: var(--primary); color:#fff; }
+.buscar { margin-left:auto; height:36px; min-width:220px; padding:0 12px; border:1px solid var(--border-color); border-radius:99px; font:inherit; font-size:.9rem; }
+.tabla-rev td { vertical-align: middle; }
+.inp-min { width:70px; height:32px; text-align:right; border:1px solid var(--border-color); border-radius:6px; padding:0 6px; font:inherit; }
+.tabla-rev tr.guardado td { background:#f0fdf4; transition: background .3s; }
+#aviso { margin-bottom: 10px; font-weight: 600; }
+#aviso.err { color: var(--danger); } #aviso.ok { color: var(--success); }
+</style>
+
+<script>
+const aviso = (t, tipo) => { const a = document.getElementById('aviso'); a.textContent = t || ''; a.className = tipo || ''; };
+let filtro = 'revisar';
+function aplicar() {
+  const q = document.getElementById('buscar').value.trim().toLowerCase();
+  let visibles = 0;
+  document.querySelectorAll('.tabla-rev tbody tr').forEach(tr => {
+    const e = tr.dataset.estado;
+    let ok = filtro === 'todas' ? true
+      : filtro === 'revisar' ? ['holgado', 'exigente', 'sin_estandar'].includes(e) && tr.dataset.conDatos === '1'
+      : e === filtro;
+    if (q && !tr.dataset.texto.includes(q)) ok = false;
+    tr.style.display = ok ? '' : 'none';
+    if (ok) visibles++;
+  });
+  document.getElementById('vacio').style.display = visibles ? 'none' : '';
+}
+document.getElementById('filtros').addEventListener('click', ev => {
+  const b = ev.target.closest('.chip'); if (!b) return;
+  document.querySelectorAll('.chip').forEach(c => c.classList.toggle('activo', c === b));
+  filtro = b.dataset.f; aplicar();
+});
+document.getElementById('buscar').addEventListener('input', aplicar);
+
+async function guardar(tr, datos) {
+  const r = await fetch(`/config/tiempos/actividad/${tr.dataset.id}`, {
+    method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(datos)
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.detail || 'No se pudo guardar');
+  tr.classList.add('guardado'); setTimeout(() => tr.classList.remove('guardado'), 1500);
+}
+document.addEventListener('change', async ev => {
+  const tr = ev.target.closest('tr[data-id]'); if (!tr) return;
+  try {
+    if (ev.target.matches('.inp-min')) {
+      const v = parseFloat(ev.target.value.replace(',', '.'));
+      if (!(v > 0)) { aviso('Escribe los minutos como un número mayor que 0', 'err'); return; }
+      await guardar(tr, { min_unidad: v });
+      aviso('Estándar guardado. La eficiencia se actualiza al recargar la página.', 'ok');
+    } else if (ev.target.matches('.chk-ind')) {
+      await guardar(tr, { indirecta: ev.target.checked });
+      tr.dataset.estado = ev.target.checked ? 'indirecta' : tr.dataset.estado;
+      aviso(ev.target.checked ? 'Marcada como indirecta.' : 'Ya no es indirecta.', 'ok');
+    }
+  } catch (e) { aviso(e.message, 'err'); }
+});
+document.addEventListener('click', async ev => {
+  const b = ev.target.closest('[data-usar]'); if (!b) return;
+  const tr = b.closest('tr');
+  const v = parseFloat(b.dataset.usar);
+  if (b.classList.contains('btn-light') && !confirm('Esta actividad tiene pocos registros. ¿Usar igual ' + v + ' min como estándar?')) return;
+  try {
+    await guardar(tr, { min_unidad: v });
+    tr.querySelector('.inp-min').value = v;
+    tr.querySelector('.col-efic').innerHTML = '<span class="pill pill-verde">100%</span>';
+    tr.dataset.estado = 'ok';
+    aviso('Listo: el estándar quedó en ' + v + ' min por unidad.', 'ok');
+  } catch (e) { aviso(e.message, 'err'); }
+});
+aplicar();
+</script>
+{% endblock %}

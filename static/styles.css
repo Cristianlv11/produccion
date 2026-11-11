@@ -2112,3 +2112,6 @@ tr:hover { background: rgba(255, 255, 255, 0.6); }
   .logo > div { display: none !important; }
   .menu a { padding: 0.45rem 0.55rem; font-size: 0.84rem; }
 }
+
+.op-ficha { font-size: 0.75rem; font-weight: 500; margin-left: 6px; color: var(--primary); text-decoration: none; border: 1px solid var(--primary-light); border-radius: 99px; padding: 1px 8px; }
+.op-ficha:hover { background: var(--primary); color: #fff; }

@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+
+{% block content %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+{% macro pill(valor) -%}
+  {%- if valor is none -%}<span class="pill pill-gris">—</span>
+  {%- elif valor > 150 -%}<span class="pill pill-rojo" title="Muy por encima del estándar: revisar el estándar">{{ valor|round|int }}%</span>
+  {%- elif valor >= 90 -%}<span class="pill pill-verde">{{ valor|round|int }}%</span>
+  {%- elif valor >= 70 -%}<span class="pill pill-ambar">{{ valor|round|int }}%</span>
+  {%- else -%}<span class="pill pill-rojo">{{ valor|round|int }}%</span>
+  {%- endif -%}
+{%- endmacro %}
+
+<div class="page-title">
+  <div>
+    <a class="volver" href="/metricas_operarios">&larr; Métricas</a>
+    <h1>{{ f.nombre }}</h1>
+    <p>Últimas {{ f.semanas }} semanas · {{ f.desde }} – {{ f.hasta }}</p>
+  </div>
+  <div class="semana-nav">
+    <select onchange="location.href='/metricas/operario/'+this.value+'?semanas={{ f.semanas }}'" aria-label="Operario">
+      {% for o in operarios %}<option value="{{ o.id }}" {% if o.id == f.id %}selected{% endif %}>{{ o.nombre }}</option>{% endfor %}
+    </select>
+    <select onchange="location.href='/metricas/operario/{{ f.id }}?semanas='+this.value" aria-label="Periodo">
+      {% for s in [4, 8, 12, 26, 52] %}<option value="{{ s }}" {% if s == f.semanas %}selected{% endif %}>{{ s }} semanas</option>{% endfor %}
+    </select>
+  </div>
+</div>
+
+{% if f.total.registros == 0 %}
+  <div class="vacio"><div class="vacio-icono">🗂️</div><h2>Sin registros en este periodo</h2><p>Prueba con un periodo más largo.</p></div>
+{% else %}
+<section class="kpi-grid kpi-grid-4">
+  <div class="kpi-card">
+    <span class="kpi-title">Eficiencia</span>
+    <div class="kpi-value">{{ pill(f.total.eficiencia) }}</div>
+    <div class="kpi-help">{% if f.tendencia is not none %}{% if f.tendencia > 0 %}▲ sube {{ f.tendencia }} puntos{% elif f.tendencia < 0 %}▼ baja {{ -f.tendencia }} puntos{% else %}estable{% endif %} en el periodo{% else %}poca información para ver tendencia{% endif %}</div>
+  </div>
+  <div class="kpi-card">
+    <span class="kpi-title">Tiempo registrado</span>
+    <div class="kpi-value">{{ f.total.registrado|round|int if f.total.registrado is not none else 0 }}%</div>
+    <div class="kpi-help">{{ f.total.horas }} h en {{ f.total.dias }} días</div>
+  </div>
+  <div class="kpi-card">
+    <span class="kpi-title">Tiempo sin producir</span>
+    <div class="kpi-value">{{ f.total.indirecto|round|int if f.total.indirecto is not none else 0 }}%</div>
+    <div class="kpi-help">actividades indirectas</div>
+  </div>
+  <div class="kpi-card">
+    <span class="kpi-title">Unidades</span>
+    <div class="kpi-value">{{ f.total.unidades }}</div>
+    <div class="kpi-help">{{ f.total.registros }} registros</div>
+  </div>
+</section>
+
+<section class="section">
+  <h2>Semana a semana</h2>
+  <canvas id="chartSemanas" height="110"></canvas>
+</section>
+
+<section class="section">
+  <h2>Por actividad</h2>
+  <p class="ayuda">Dónde rinde más y dónde le cuesta. Una eficiencia en rojo muy alta suele ser un estándar mal puesto, no un récord.</p>
+  <div class="table-container" style="overflow-x:auto">
+    <table class="data-table">
+      <thead><tr><th>Actividad</th><th>Producto</th><th class="num">Horas</th><th class="num">Unidades</th><th>Eficiencia</th></tr></thead>
+      <tbody>
+      {% for a in f.actividades %}
+        <tr>
+          <td>{{ a.nombre }}</td><td class="muted">{{ a.producto }}</td>
+          <td class="num">{{ a.horas }}</td><td class="num">{{ a.unidades }}</td>
+          <td>{% if a.indirecta %}<span class="pill pill-gris">indirecta</span>{% else %}{{ pill(a.eficiencia) }}{% endif %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<script>
+(function () {
+  const s = {{ f.serie | tojson }};
+  new Chart(document.getElementById('chartSemanas'), {
+    data: {
+      labels: s.map(x => 'Sem ' + x.etiqueta),
+      datasets: [
+        { type: 'line', label: 'Eficiencia %', data: s.map(x => x.eficiencia), borderColor: '#2d6a4f', backgroundColor: '#2d6a4f', tension: .3, spanGaps: true },
+        { type: 'line', label: 'Tiempo registrado %', data: s.map(x => x.registrado), borderColor: '#d97706', backgroundColor: '#d97706', borderDash: [6, 4], tension: .3, spanGaps: true },
+        { type: 'bar', label: 'Horas', data: s.map(x => x.horas), backgroundColor: 'rgba(148,201,115,.35)', borderRadius: 4, yAxisID: 'yh' }
+      ]
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { position: 'bottom' } },
+      scales: {
+        y: { beginAtZero: true, suggestedMax: 120, ticks: { callback: v => v + '%' }, grid: { color: '#eef0ea' } },
+        yh: { beginAtZero: true, position: 'right', grid: { display: false }, title: { display: true, text: 'Horas' } },
+        x: { grid: { display: false } }
+      }
+    }
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

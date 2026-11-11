@@ -18,9 +18,7 @@
         {{ item("/panel", "Producción", none) }}
         {{ item("/produccion_en_proceso", "En proceso", none) }}
         {{ item("/metricas_operarios", "Métricas", ["/metricas"]) }}
-        {{ item("/wip", "Cuellos de botella", none) }}
         {{ item("/bonos", "Bonos", ["/bonos"]) }}
-        {{ item("/tickets/admin", "Tickets", ["/tickets"]) }}
         {{ item("/configuracion", "Configuración", ["/configuracion", "/admin_tools"]) }}
         <a href="/logout" class="menu-salir">Salir</a>
         {% elif request and request.session.get("role") == "supervisor" %}

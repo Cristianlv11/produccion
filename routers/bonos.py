@@ -2,6 +2,7 @@ import json
 from fastapi import APIRouter, Request, Response, Query
 from fastapi.responses import HTMLResponse, RedirectResponse
 from database import db
+from costos import leer_parametros
 from datetime import datetime
 
 router = APIRouter()
@@ -26,19 +27,26 @@ def calcular_detalles_operario(c, operario_id: int, operario_nombre: str, mes: i
             SUM((EXTRACT(EPOCH FROM r.fin::timestamp) - EXTRACT(EPOCH FROM r.inicio::timestamp)) / 3600.0) as horas,
             COUNT(r.id) as cantidad_registros,
             e.unidades_por_hora as unidades_estandar,
-            e.costo_mo_unidad as costo_base
+            COALESCE(a.indirecta, FALSE) as indirecta
         FROM registros_produccion r
         JOIN actividades a ON a.id = r.actividad_id
-        LEFT JOIN estandares_actividad e ON e.actividad_id = a.id
+        LEFT JOIN LATERAL (
+            SELECT unidades_por_hora FROM estandares_actividad
+            WHERE actividad_id = a.id ORDER BY id LIMIT 1
+        ) e ON TRUE
         LEFT JOIN procesos p ON p.id = a.proceso_id
         LEFT JOIN maquinas m ON m.id = p.maquina_id
         WHERE r.operario_id = %s
         AND TO_CHAR(r.inicio::timestamp, 'MM') = %s
         AND TO_CHAR(r.inicio::timestamp, 'YYYY') = %s
-        GROUP BY a.id, a.nombre, m.nombre, e.unidades_por_hora, e.costo_mo_unidad
+        GROUP BY a.id, a.nombre, m.nombre, e.unidades_por_hora, a.indirecta
     """, (operario_id, f"{mes:02d}", str(anio)))
-
     rows = c.fetchall() or []
+
+    # Un solo costo por hora para todos (salario configurado en Actividades y tiempos):
+    # el valor de una unidad es ese costo por el tiempo estándar de la actividad.
+    # (Se lee después de traer las filas: usa el mismo cursor.)
+    costo_hora = leer_parametros(c)["costo_hora"]
     detalle = []
     
     total_unidades = 0
@@ -66,12 +74,18 @@ def calcular_detalles_operario(c, operario_id: int, operario_nombre: str, mes: i
         else:
             rendimiento_real = unidades / horas
 
-        unidades_estandar = float(row[6]) if len(row) > 6 and row[6] else 0
-        costo_base = float(row[7]) if len(row) > 7 and row[7] else 0
+        unidades_estandar = float(row[6]) if row[6] else 0
+        indirecta = bool(row[7])
+        costo_base = costo_hora / unidades_estandar if unidades_estandar else 0
 
-        eficiencia = rendimiento_real / unidades_estandar if unidades_estandar else 0
+        eficiencia = rendimiento_real / unidades_estandar if unidades_estandar and not indirecta else 0
+        estandar_por_revisar = eficiencia > 1.5 and horas > 0
 
-        if eficiencia >= 1.10:
+        if indirecta or estandar_por_revisar:
+            # Indirecta: no produce unidades. Más de 150 %: el estándar está mal puesto y
+            # pagaría bono de más; no paga hasta que se revise en Revisión de estándares.
+            porcentaje = 0
+        elif eficiencia >= 1.10:
             porcentaje = 0.04
         elif eficiencia >= 1.00:
             porcentaje = 0.03
@@ -83,8 +97,8 @@ def calcular_detalles_operario(c, operario_id: int, operario_nombre: str, mes: i
         bono = unidades * costo_base * porcentaje
         total_bono += bono
 
-        if eficiencia > 1.5 and horas > 0:
-            alertas.append(f"Eficiencia irreal (>150%) en '{actividad}'.")
+        if estandar_por_revisar:
+            alertas.append(f"'{actividad}' va al {eficiencia*100:.0f} %: no paga bono hasta revisar su estándar.")
 
         detalle.append({
             "actividad_id": actividad_id,
@@ -97,7 +111,9 @@ def calcular_detalles_operario(c, operario_id: int, operario_nombre: str, mes: i
             "eficiencia": round(eficiencia*100,2),
             "porcentaje": porcentaje*100,
             "bono": round(bono,2),
-            "cantidad_registros": cantidad_registros
+            "cantidad_registros": cantidad_registros,
+            "indirecta": indirecta,
+            "estandar_por_revisar": estandar_por_revisar,
         })
 
     c.execute("""
@@ -109,7 +125,9 @@ def calcular_detalles_operario(c, operario_id: int, operario_nombre: str, mes: i
     """, (operario_id, f"{mes:02d}", str(anio)))
     dias_trabajados = float(c.fetchone()[0] or 0)
     
-    horas_disponibles = (dias_trabajados * 530) / 60
+    # Misma jornada que el horario de pasadas (sin descansos)
+    from routers.metricas import minutos_jornada
+    horas_disponibles = (dias_trabajados * minutos_jornada(c)) / 60
     eficiencia_ocupacion = total_horas / horas_disponibles if horas_disponibles > 0 else 0
 
     if eficiencia_ocupacion < 0.90:
@@ -123,7 +141,10 @@ def calcular_detalles_operario(c, operario_id: int, operario_nombre: str, mes: i
     if eficiencia_ocupacion > 0 and eficiencia_ocupacion < 0.3 and total_bono > 0 and any(d["eficiencia"] > 100 for d in detalle):
         alertas.append("Ocupación <30% pero gana bono. Posible error en hora de fin.")
 
-    eficiencia_productiva_global = sum([d["eficiencia"] * d["horas"] for d in detalle]) / total_horas if total_horas > 0 else 0
+    # Solo actividades directas con estándar razonable
+    medibles = [d for d in detalle if d["estandar"] and not d["indirecta"] and not d["estandar_por_revisar"]]
+    horas_medibles = sum(d["horas"] for d in medibles)
+    eficiencia_productiva_global = sum(d["eficiencia"] * d["horas"] for d in medibles) / horas_medibles if horas_medibles > 0 else 0
 
     return {
         "operario_id": operario_id,
@@ -304,23 +325,11 @@ def actualizar_estandar(
     conn = db()
     c = conn.cursor()
     
-    # Primero verificamos si existe
-    c.execute("SELECT id FROM estandares_actividad WHERE actividad_id = %s", (actividad_id,))
-    existe = c.fetchone()
-    
-    if existe:
-        c.execute("""
-            UPDATE estandares_actividad 
-            SET unidades_por_hora = %s 
-            WHERE actividad_id = %s
-        """, (nuevo_estandar, actividad_id))
-    else:
-        c.execute("""
-            INSERT INTO estandares_actividad (actividad_id, unidades_por_hora, costo_mo_unidad, costo_mo_hora)
-            VALUES (%s, %s, 0, 0)
-        """, (actividad_id, nuevo_estandar))
-    
-    conn.commit()
+    # nuevo_estandar llega en minutos por unidad (igual que en el resto del sistema)
+    if nuevo_estandar > 0:
+        from routers.tiempos import guardar_estandar
+        guardar_estandar(c, actividad_id, nuevo_estandar)
+        conn.commit()
     conn.close()
     
     return RedirectResponse(f"/bonos/detalle?operario_id={operario_id}&mes={mes}&anio={anio}", 303)

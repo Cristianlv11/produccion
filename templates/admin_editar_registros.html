@@ -108,6 +108,14 @@
     document.getElementById('filter_hasta').value = hoy.toISOString().split('T')[0];
     document.getElementById('filter_desde').value = hace3Dias.toISOString().split('T')[0];
 
+    // Filtros desde la URL (por ejemplo, desde «Registros para revisar»)
+    const filtrosUrl = new URLSearchParams(location.search);
+    if (filtrosUrl.get('desde')) document.getElementById('filter_desde').value = filtrosUrl.get('desde');
+    if (filtrosUrl.get('hasta')) document.getElementById('filter_hasta').value = filtrosUrl.get('hasta');
+    if (filtrosUrl.get('operario')) document.getElementById('filter_operario').value = filtrosUrl.get('operario');
+    const registroResaltado = filtrosUrl.get('registro');
+    document.addEventListener('DOMContentLoaded', () => cargarRegistros());
+
     document.getElementById('filterForm').addEventListener('submit', function(e) {
         e.preventDefault();
         cargarRegistros();
@@ -147,8 +155,9 @@
             tbody.innerHTML = '';
             data.forEach(row => {
                 const tr = document.createElement('tr');
+                if (registroResaltado && String(row.id) === registroResaltado) { tr.style.background = '#fef9c3'; setTimeout(() => tr.scrollIntoView({block: 'center'}), 50); }
                 // Formatear fechas
-                const ini = row.inicio.replace('T', ' ').substring(0, 16);
+                const ini = String(row.inicio).replace('T', ' ').substring(0, 16);
                 const fin = row.fin ? row.fin.replace('T', ' ').substring(0, 16) : '-';
                 
                 tr.innerHTML = `

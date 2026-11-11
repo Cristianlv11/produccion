@@ -140,7 +140,8 @@ def metricas_semana(cursor, lunes):
     cursor.execute("""
         SELECT r.id, op.id, op.nombre, a.nombre, COALESCE(m.nombre, ''), r.cantidad,
                r.inicio::timestamp, r.fin::timestamp, e.unidades_por_hora,
-               COALESCE(r.observacion, ''), COALESCE(ch.nombre, ''), r.orden_id
+               COALESCE(r.observacion, ''), COALESCE(ch.nombre, ''), r.orden_id,
+               COALESCE(a.indirecta, FALSE)
         FROM registros_produccion r
         JOIN operarios op ON op.id = r.operario_id
         JOIN actividades a ON a.id = r.actividad_id
@@ -158,13 +159,16 @@ def metricas_semana(cursor, lunes):
     jornada_h = minutos_jornada(cursor) / 60
 
     def acumulador():
-        return {"unidades": 0, "horas": 0.0, "horas_con_std": 0.0, "horas_std": 0.0, "registros": 0}
+        return {"unidades": 0, "horas": 0.0, "horas_con_std": 0.0, "horas_std": 0.0, "registros": 0,
+                "horas_indirectas": 0.0}
 
-    def sumar(acc, cantidad, horas, h_std):
+    def sumar(acc, cantidad, horas, h_std, indirecta=False):
         acc["unidades"] += cantidad
         acc["horas"] += horas
         acc["registros"] += 1
-        if h_std is not None:
+        if indirecta:
+            acc["horas_indirectas"] += horas
+        elif h_std is not None:
             acc["horas_con_std"] += horas
             acc["horas_std"] += h_std
 
@@ -172,19 +176,22 @@ def metricas_semana(cursor, lunes):
     dias = OrderedDict((lunes + timedelta(days=i), acumulador()) for i in range(7))
     operarios, actividades = {}, {}
     sin_estandar = set()
+    indirectas = {}
 
     for (rid, op_id, op_nombre, actividad, maquina, cantidad, ini, fin_r, uph,
-         observacion, pasada, orden_id) in filas:
+         observacion, pasada, orden_id, indirecta) in filas:
         cantidad = int(cantidad or 0)
         horas = max((fin_r - ini).total_seconds() / 3600, 0) if ini and fin_r else 0
-        h_std = cantidad / float(uph) if uph and float(uph) > 0 else None
-        if h_std is None:
+        h_std = cantidad / float(uph) if uph and float(uph) > 0 and not indirecta else None
+        if indirecta:
+            indirectas[actividad] = indirectas.get(actividad, 0) + horas
+        elif h_std is None:
             sin_estandar.add(actividad)
-        sumar(total, cantidad, horas, h_std)
-        sumar(dias[ini.date()], cantidad, horas, h_std)
+        sumar(total, cantidad, horas, h_std, indirecta)
+        sumar(dias[ini.date()], cantidad, horas, h_std, indirecta)
 
-        op = operarios.setdefault(op_id, {"nombre": op_nombre, "dias": set(), "detalle": [], **acumulador()})
-        sumar(op, cantidad, horas, h_std)
+        op = operarios.setdefault(op_id, {"id": op_id, "nombre": op_nombre, "dias": set(), "detalle": [], **acumulador()})
+        sumar(op, cantidad, horas, h_std, indirecta)
         op["dias"].add(ini.date())
         op["detalle"].append({
             "dia": f"{NOMBRES_DIA[ini.weekday()]} {ini:%d/%m}",
@@ -196,11 +203,12 @@ def metricas_semana(cursor, lunes):
             "cantidad": cantidad,
             "horas": round(horas, 2),
             "eficiencia": _pct(h_std, horas) if h_std is not None else None,
+            "indirecta": indirecta,
             "observacion": observacion,
         })
 
-        act = actividades.setdefault(actividad, {"nombre": actividad, "maquina": maquina, **acumulador()})
-        sumar(act, cantidad, horas, h_std)
+        act = actividades.setdefault(actividad, {"nombre": actividad, "maquina": maquina, "indirecta": indirecta, **acumulador()})
+        sumar(act, cantidad, horas, h_std, indirecta)
 
     def cerrar(acc, disponibles=None):
         # Los porcentajes se calculan con las horas sin redondear (si no, salía «101 %»)
@@ -208,6 +216,8 @@ def metricas_semana(cursor, lunes):
         acc["eficiencia"] = _pct(acc["horas_std"], acc["horas_con_std"])
         acc["cobertura"] = min(_pct(acc["horas_con_std"], horas) or 0, 100) if horas else None
         acc["productividad"] = round(acc["unidades"] / horas, 2) if horas else 0
+        acc["indirecto_pct"] = _pct(acc["horas_indirectas"], horas) if horas else None
+        acc["horas_indirectas"] = round(acc["horas_indirectas"], 1)
         if disponibles is not None:
             acc["disponibles"] = round(disponibles, 1)
             acc["registrado"] = _pct(horas, disponibles)
@@ -243,6 +253,7 @@ def metricas_semana(cursor, lunes):
         "operarios": lista_ops,
         "actividades": lista_act[:10],
         "sin_estandar": sorted(sin_estandar),
+        "indirectas": [{"nombre": n, "horas": round(h, 1)} for n, h in sorted(indirectas.items(), key=lambda x: -x[1])],
         "jornada_h": round(jornada_h, 1),
     }
 

@@ -33,7 +33,7 @@
 
 </head>
 
-<link rel="stylesheet" href="/static/styles.css?v=20261111d">
+<link rel="stylesheet" href="/static/styles.css?v=20261111e">
 <body>
 {% include '_navbar.html' %}
 
@@ -62,7 +62,7 @@
 <th>Actividad</th>
 <th>Unidades</th>
 <th>Horas</th>
-<th>Estándar (uds/h)</th>
+<th>Estándar (min / und)</th>
 <th>Rendimiento</th>
 <th>Eficiencia</th>
 <th>% Bono</th>
@@ -83,14 +83,14 @@
         <input type="hidden" name="operario_id" value="{{ operario_id }}">
         <input type="hidden" name="mes" value="{{ mes }}">
         <input type="hidden" name="anio" value="{{ anio }}">
-        <input type="number" step="any" name="nuevo_estandar" value="{{ d.estandar }}" style="width: 70px; padding: 4px; border: 1px solid #ccc; border-radius: 4px;" {% if cerrado %}disabled{% endif %}>
+        <input type="number" step="any" name="nuevo_estandar" value="{{ (60 / d.estandar)|round(2) if d.estandar else '' }}" style="width: 70px; padding: 4px; border: 1px solid #ccc; border-radius: 4px;" {% if cerrado %}disabled{% endif %}>
         {% if not cerrado %}
         <button type="submit" title="Guardar estándar" style="background:#3498db; color:white; border:none; padding:4px 8px; border-radius:4px; cursor:pointer;">💾</button>
         {% endif %}
     </form>
 </td>
 <td>{{d.rendimiento}}</td>
-<td>{{d.eficiencia}}%</td>
+<td>{% if d.indirecta %}<span class="badge">indirecta</span>{% elif d.estandar_por_revisar %}{{d.eficiencia}}%<br><small style="color:#b91c1c">revisar estándar</small>{% else %}{{d.eficiencia}}%{% endif %}</td>
 <td>
 {% if d.porcentaje == 4 %}
 <span class="badge badge-success">4%</span>

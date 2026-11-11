@@ -227,14 +227,14 @@ def api_obtener_registros(request: Request, operario_id: int = None, fecha_inici
         params.append(operario_id)
         
     if fecha_inicio:
-        query += " AND rp.inicio >= %s"
-        params.append(fecha_inicio + "T00:00:00")
+        query += " AND rp.inicio::timestamp >= %s::timestamp"
+        params.append(fecha_inicio + " 00:00:00")
         
     if fecha_fin:
-        query += " AND rp.inicio <= %s"
-        params.append(fecha_fin + "T23:59:59")
+        query += " AND rp.inicio::timestamp <= %s::timestamp"
+        params.append(fecha_fin + " 23:59:59")
         
-    query += " ORDER BY rp.inicio DESC LIMIT 1000"
+    query += " ORDER BY rp.inicio::timestamp DESC LIMIT 1000"
     
     c.execute(query, tuple(params))
     rows = c.fetchall()

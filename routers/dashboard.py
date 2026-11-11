@@ -77,9 +77,9 @@ def home(request: Request):
     else:
         avance_promedio = 0
 
-    # 4. Tickets Abiertos (en lugar de Operarios Activos o como complemento)
-    c.execute("SELECT COUNT(*) FROM tickets WHERE UPPER(estado) <> 'CERRADO'")
-    tickets_abiertos = c.fetchone()[0] or 0
+    # 4. Eficiencia y tiempo registrado de la semana (mismo cálculo que Métricas)
+    from routers.metricas import metricas_semana, lunes_de, hoy_local
+    semana = metricas_semana(c, lunes_de(hoy_local()))["total"]
 
     # Gráfico: Últimos 7 días
     c.execute("""
@@ -107,16 +107,6 @@ def home(request: Request):
     ultima_orden = c.fetchone()
     if ultima_orden:
         ultima_orden = {"id": ultima_orden[0], "maquina": ultima_orden[1], "cantidad": ultima_orden[2]}
-
-    # Tickets recientes
-    c.execute("""
-        SELECT id, titulo, prioridad 
-        FROM tickets 
-        WHERE UPPER(estado) <> 'CERRADO' 
-        ORDER BY CASE WHEN prioridad = 'Alta' THEN 1 ELSE 2 END, id DESC 
-        LIMIT 3
-    """)
-    tickets_recientes = [{"id": r[0], "titulo": r[1], "prioridad": r[2]} for r in c.fetchall()]
 
     # 5. Top Operarios
     c.execute(f"""
@@ -164,11 +154,10 @@ def home(request: Request):
         "produccion_hoy": produccion_hoy,
         "tendencia_prod": tendencia_prod,
         "avance_promedio": avance_promedio,
-        "tickets_abiertos": tickets_abiertos,
+        "semana": semana,
         "chart_fechas": fechas,
         "chart_cantidades": cantidades,
         "ultima_orden": ultima_orden,
-        "tickets_recientes": tickets_recientes,
         "top_operarios": top_operarios,
         "top_ordenes": top_ordenes
     })

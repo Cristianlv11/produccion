@@ -60,6 +60,11 @@ def asegurar_schema_cortes(cursor):
     cursor.execute("ALTER TABLE registros_produccion ADD COLUMN IF NOT EXISTS fecha_corte DATE")
     cursor.execute("ALTER TABLE registros_produccion ADD COLUMN IF NOT EXISTS observacion TEXT")
     cursor.execute("ALTER TABLE ordenes ADD COLUMN IF NOT EXISTS nota TEXT")
+    # Actividades indirectas (calibración, limpieza, esperas…): cuentan como tiempo trabajado
+    # pero no entran en la eficiencia ni en los bonos
+    cursor.execute("ALTER TABLE actividades ADD COLUMN IF NOT EXISTS indirecta BOOLEAN DEFAULT FALSE")
+    from costos import asegurar_parametros
+    asegurar_parametros(cursor)
 
     cursor.execute("SELECT COUNT(*) FROM cortes_horario")
     if cursor.fetchone()[0] == 0:

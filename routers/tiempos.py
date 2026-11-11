@@ -356,6 +356,8 @@ def editar_actividad(actividad_id: int, data: dict, request: Request):
                       (operario_valido(c, data.get("operario_id")), actividad_id))
         if "activo" in data:
             c.execute("UPDATE actividades SET activo = %s WHERE id = %s", (bool(data["activo"]), actividad_id))
+        if "indirecta" in data:
+            c.execute("UPDATE actividades SET indirecta = %s WHERE id = %s", (bool(data["indirecta"]), actividad_id))
         if "min_unidad" in data:
             guardar_estandar(c, actividad_id, minutos_validos(data.get("min_unidad")))
         conn.commit()
