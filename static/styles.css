@@ -2104,3 +2104,11 @@ tr:hover { background: rgba(255, 255, 255, 0.6); }
 .hub-card.peligro h3 { color: #991b1b; }
 .volver { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); text-decoration: none; font-size: 0.9rem; margin-bottom: 10px; }
 .volver:hover { color: var(--primary); }
+
+/* Menú: que quepa en una fila en pantallas medianas */
+.logo { flex: none; white-space: nowrap; }
+.menu a { white-space: nowrap; }
+@media (max-width: 1250px) {
+  .logo > div { display: none !important; }
+  .menu a { padding: 0.45rem 0.55rem; font-size: 0.84rem; }
+}

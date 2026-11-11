@@ -203,13 +203,15 @@ def metricas_semana(cursor, lunes):
         sumar(act, cantidad, horas, h_std)
 
     def cerrar(acc, disponibles=None):
-        acc["horas"] = round(acc["horas"], 1)
+        # Los porcentajes se calculan con las horas sin redondear (si no, salía «101 %»)
+        horas = acc["horas"]
         acc["eficiencia"] = _pct(acc["horas_std"], acc["horas_con_std"])
-        acc["cobertura"] = _pct(acc["horas_con_std"], acc["horas"])
-        acc["productividad"] = round(acc["unidades"] / acc["horas"], 2) if acc["horas"] else 0
+        acc["cobertura"] = min(_pct(acc["horas_con_std"], horas) or 0, 100) if horas else None
+        acc["productividad"] = round(acc["unidades"] / horas, 2) if horas else 0
         if disponibles is not None:
             acc["disponibles"] = round(disponibles, 1)
-            acc["registrado"] = _pct(acc["horas"], disponibles)
+            acc["registrado"] = _pct(horas, disponibles)
+        acc["horas"] = round(horas, 1)
         return acc
 
     lista_ops = []
