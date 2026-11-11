@@ -185,7 +185,7 @@ def panel(request: Request):
     maquinas = c.fetchall()
 
     c.execute("""
-        SELECT o.id, m.nombre, o.cantidad, o.estado, o.cerrado_en
+        SELECT o.id, m.nombre, o.cantidad, o.estado, o.cerrado_en, o.nota
         FROM ordenes o
         JOIN maquinas m ON m.id = o.maquina_id
         ORDER BY o.id DESC
@@ -243,6 +243,7 @@ def panel(request: Request):
             "estado": o[3],
             "porcentaje": porcentaje_general,
             "cerrado_en": o[4],
+            "nota": o[5] or "",
             "procesos": [
                 {"nombre": k, "actividades": v}
                 for k, v in procesos.items()
@@ -325,15 +326,16 @@ def eliminar(id: int):
 
 
 @router.post("/crear_orden_web")
-def crear_orden_web(cantidad: int = Form(...), maquina: int = Form(...)):
+def crear_orden_web(cantidad: int = Form(...), maquina: int = Form(...), nota: str = Form("")):
 
     conn = db()
     c = conn.cursor()
 
+    # La nota distingue órdenes del mismo producto (p. ej. "Exportación"); se ve en la app de cortes
     c.execute("""
-        INSERT INTO ordenes(maquina_id, cantidad, estado)
-        VALUES (%s, %s, 'ABIERTA') RETURNING id
-    """, (maquina, cantidad))
+        INSERT INTO ordenes(maquina_id, cantidad, estado, nota)
+        VALUES (%s, %s, 'ABIERTA', %s) RETURNING id
+    """, (maquina, cantidad, nota.strip()[:80] or None))
 
     orden_id = c.fetchone()[0]
 
@@ -342,6 +344,7 @@ def crear_orden_web(cantidad: int = Form(...), maquina: int = Form(...)):
         FROM actividades a
         JOIN procesos p ON a.proceso_id = p.id
         WHERE p.maquina_id = %s
+          AND COALESCE(p.activo, TRUE) = TRUE AND COALESCE(a.activo, TRUE) = TRUE
     """, (maquina,))
     acts = c.fetchall()
 

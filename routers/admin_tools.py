@@ -214,7 +214,8 @@ def api_obtener_registros(request: Request, operario_id: int = None, fecha_inici
             a.nombre as actividad_nombre,
             p.nombre as proceso_nombre,
             m.nombre as maquina_nombre,
-            ord.id as orden_id
+            ord.id as orden_id,
+            rp.observacion
         FROM registros_produccion rp
         JOIN operarios o ON rp.operario_id = o.id
         JOIN actividades a ON rp.actividad_id = a.id
@@ -243,7 +244,7 @@ def api_obtener_registros(request: Request, operario_id: int = None, fecha_inici
     rows = c.fetchall()
     conn.close()
     
-    cols = ["id", "cantidad", "inicio", "fin", "tiempo", "operario_nombre", "actividad_nombre", "proceso_nombre", "maquina_nombre", "orden_id"]
+    cols = ["id", "cantidad", "inicio", "fin", "tiempo", "operario_nombre", "actividad_nombre", "proceso_nombre", "maquina_nombre", "orden_id", "observacion"]
     result = [dict(zip(cols, row)) for row in rows]
     return JSONResponse(result)
 

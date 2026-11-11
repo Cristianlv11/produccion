@@ -156,7 +156,7 @@
                     <td>${ini}</td>
                     <td>${fin}</td>
                     <td><b>${row.operario_nombre}</b></td>
-                    <td>${row.proceso_nombre} > ${row.actividad_nombre}</td>
+                    <td>${row.proceso_nombre} > ${row.actividad_nombre}${row.observacion ? `<br><small style="color:var(--text-muted);">${String(row.observacion).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]))}</small>` : ''}</td>
                     <td>Ord. #${row.orden_id}</td>
                     <td><span class="badge badge-info" style="font-size:14px;">${row.cantidad}</span></td>
                     <td>${formatSegundos(row.tiempo)}</td>

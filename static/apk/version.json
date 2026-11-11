@@ -1,8 +1,8 @@
 {
-    "versionCode":  5,
-    "versionName":  "1.4",
-    "apk":  "produccionhmi-5.apk",
-    "sha256":  "6fcd511575430e9fe769df8f65a6759f63f1b6dd285e0aede41d77586f2c4c33",
-    "notes":  "Diseño nuevo: registro por cortes más claro y rápido.",
+    "versionCode":  6,
+    "versionName":  "1.5",
+    "apk":  "produccionhmi-6.apk",
+    "sha256":  "d7474e0029fc03d89bdc61b2523413798833ebbd0bde0cdb1fb699a42e746c7d",
+    "notes":  "Observación por registro, nota de la orden y nuevas pasadas con descansos",
     "forceUpdate":  false
 }

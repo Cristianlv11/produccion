@@ -2,12 +2,13 @@
 
 {% block content %}
 <style>
-.ct-wrap { max-width: 760px; }
+.ct-wrap { max-width: 780px; }
 .ct-wrap p { color: var(--text-muted); font-size: 14px; }
+.ct-wrap h2 { font-size: 18px; margin: 26px 0 6px; }
 table.ct { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: var(--shadow-sm); border: 1px solid var(--border-color); }
 table.ct th { text-align: left; font-size: 12px; color: var(--text-muted); padding: 10px; border-bottom: 1px solid var(--border-color); background: #f0f7f2; }
 table.ct td { padding: 6px 10px; border-bottom: 1px solid #f1f5f9; font-size: 14px; }
-table.ct input[type=text], table.ct input[type=time], table.ct input[type=number] { height: 34px; border: 1px solid #e2e8f0; border-radius: 5px; padding: 0 8px; font-size: 14px; width: 100%; box-sizing: border-box; }
+table.ct input[type=text], table.ct input[type=time] { height: 34px; border: 1px solid #e2e8f0; border-radius: 5px; padding: 0 8px; font-size: 14px; width: 100%; box-sizing: border-box; }
 table.ct tr.inactivo td { color: #94a3b8; }
 .ct-tramo { font-size: 13px; color: var(--text-muted); white-space: nowrap; }
 .ct-btn { height: 38px; padding: 0 14px; border-radius: 6px; border: none; background: var(--primary); color: white; font-weight: 600; cursor: pointer; margin-top: 12px; }
@@ -18,28 +19,35 @@ table.ct tr.inactivo td { color: #94a3b8; }
 
 <div class="ct-wrap">
   <h1>Horario de cortes</h1>
-  <p>En cada corte la supervisora pasa por los puestos y registra en la app lo que hizo cada operario desde el corte anterior.
-     El tramo empieza cuando termina el descanso del corte anterior. Los cambios se guardan al salir de cada casilla.</p>
+  <p>Los <b>cortes</b> son las horas en que la supervisora pasa por los puestos: en cada uno registra en la app lo que hizo cada operario desde el corte anterior.
+     Los <b>descansos</b> van aparte y se descuentan solos del tramo en que caen. Los cambios se guardan al salir de cada casilla.</p>
 
   <div id="ctStatus"></div>
+
+  <h2>Cortes (pasadas)</h2>
   <table class="ct">
-    <thead><tr><th>Corte</th><th>Hora</th><th>Descanso (min)</th><th>Tramo que cierra</th><th>Activo</th></tr></thead>
+    <thead><tr><th>Nombre</th><th>Hora</th><th>Tramo que cierra</th><th>Activo</th></tr></thead>
     <tbody id="ctFilas"></tbody>
   </table>
   <div class="ct-total" id="ctTotal"></div>
   <button class="ct-btn" id="ctNuevo">+ Agregar corte</button>
+
+  <h2>Descansos</h2>
+  <table class="ct">
+    <thead><tr><th>Nombre</th><th>Desde</th><th>Hasta</th><th>Activo</th></tr></thead>
+    <tbody id="psFilas"></tbody>
+  </table>
+  <button class="ct-btn" id="psNuevo">+ Agregar descanso</button>
 </div>
 
 <script>
-let cortes = [];
+let datos = { cortes: [], pausas: [], tramos: [] };
 const esc = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const min = (h) => { const [a, b] = h.split(":").map(Number); return a * 60 + b; };
-const hhmm = (m) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 function aviso(t, c) { const s = document.getElementById("ctStatus"); s.textContent = t; s.className = c || ""; }
 
-async function pedir(url, metodo = "GET", datos) {
+async function pedir(url, metodo = "GET", cuerpo) {
   const op = { method: metodo, headers: {} };
-  if (datos) { op.headers["Content-Type"] = "application/json"; op.body = JSON.stringify(datos); }
+  if (cuerpo) { op.headers["Content-Type"] = "application/json"; op.body = JSON.stringify(cuerpo); }
   const r = await fetch(url, op);
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.detail || "Error al guardar");
@@ -47,57 +55,67 @@ async function pedir(url, metodo = "GET", datos) {
 }
 
 function pintar() {
-  const activos = cortes.filter((c) => c.activo).sort((a, b) => min(a.hora) - min(b.hora));
+  const tramo = Object.fromEntries(datos.tramos.map((t) => [t.id, t]));
   let total = 0;
-  const tramo = {};
-  activos.forEach((c, i) => {
-    if (i === 0) { tramo[c.id] = "Inicio de jornada"; return; }
-    const desde = min(activos[i - 1].hora) + Number(activos[i - 1].descanso_min || 0);
-    const mins = Math.max(0, min(c.hora) - desde);
-    total += mins;
-    tramo[c.id] = `${hhmm(desde)} – ${c.hora} (${mins} min)`;
-  });
-  document.getElementById("ctFilas").innerHTML = cortes.map((c) => `
-    <tr data-id="${c.id}" class="${c.activo ? "" : "inactivo"}">
+  document.getElementById("ctFilas").innerHTML = datos.cortes.map((c) => {
+    const t = tramo[c.id];
+    let texto = "Inactivo";
+    if (c.activo && t) {
+      if (!t.desde) texto = "Inicio de jornada";
+      else {
+        total += t.minutos;
+        texto = `${t.desde} – ${c.hora} (${t.minutos} min${t.pausas.length ? ", sin " + t.pausas.join(" ni ").toLowerCase() : ""})`;
+      }
+    }
+    return `<tr data-tipo="corte" data-id="${c.id}" class="${c.activo ? "" : "inactivo"}">
       <td><input type="text" data-campo="nombre" value="${esc(c.nombre)}"></td>
       <td><input type="time" data-campo="hora" value="${esc(c.hora)}"></td>
-      <td><input type="number" min="0" max="180" data-campo="descanso_min" value="${c.descanso_min}"></td>
-      <td class="ct-tramo">${c.activo ? tramo[c.id] || "" : "Inactivo"}</td>
-      <td><input type="checkbox" data-campo="activo" ${c.activo ? "checked" : ""}></td>
-    </tr>`).join("");
+      <td class="ct-tramo">${esc(texto)}</td>
+      <td><input type="checkbox" data-campo="activo" ${c.activo ? "checked" : ""}></td></tr>`;
+  }).join("");
+  document.getElementById("psFilas").innerHTML = datos.pausas.map((p) => `
+    <tr data-tipo="pausa" data-id="${p.id}" class="${p.activo ? "" : "inactivo"}">
+      <td><input type="text" data-campo="nombre" value="${esc(p.nombre)}"></td>
+      <td><input type="time" data-campo="inicio" value="${esc(p.inicio)}"></td>
+      <td><input type="time" data-campo="fin" value="${esc(p.fin)}"></td>
+      <td><input type="checkbox" data-campo="activo" ${p.activo ? "checked" : ""}></td></tr>`).join("");
   document.getElementById("ctTotal").textContent = `Tiempo de trabajo del día: ${total} min (${(total / 60).toFixed(1)} h)`;
 }
 
-async function cargar() {
-  cortes = (await pedir("/config/cortes")).cortes;
-  pintar();
-}
+async function cargar() { datos = await pedir("/config/cortes"); pintar(); }
 
 document.addEventListener("change", async (ev) => {
   const tr = ev.target.closest("tr[data-id]");
   if (!tr) return;
-  const c = cortes.find((x) => x.id === Number(tr.dataset.id));
+  const lista = tr.dataset.tipo === "corte" ? datos.cortes : datos.pausas;
+  const fila = lista.find((x) => x.id === Number(tr.dataset.id));
   const campo = ev.target.dataset.campo;
   const valor = ev.target.type === "checkbox" ? ev.target.checked : ev.target.value;
-  const datos = { ...c, [campo]: valor };
   try {
-    await pedir(`/config/cortes/${c.id}`, "PUT", datos);
-    Object.assign(c, datos);
+    await pedir(`/config/${tr.dataset.tipo === "corte" ? "cortes" : "pausas"}/${fila.id}`, "PUT", { ...fila, [campo]: valor });
     aviso("✓ Guardado", "ok");
-    pintar();
+    await cargar();
   } catch (e) { aviso(e.message, "err"); pintar(); }
 });
 
 document.getElementById("ctNuevo").addEventListener("click", async () => {
-  const nombre = prompt("Nombre del corte (ej. Pausa activa, Fin de turno):");
+  const nombre = prompt("Nombre del corte (ej. Pasada 10:00):");
   if (!nombre || !nombre.trim()) return;
   const hora = prompt("Hora del corte en formato 24 h (ej. 15:30):");
   if (!hora) return;
-  try {
-    await pedir("/config/cortes", "POST", { nombre: nombre.trim(), hora: hora.trim(), descanso_min: 0 });
-    aviso("Corte agregado", "ok");
-    await cargar();
-  } catch (e) { aviso(e.message, "err"); }
+  try { await pedir("/config/cortes", "POST", { nombre: nombre.trim(), hora: hora.trim() }); aviso("Corte agregado", "ok"); await cargar(); }
+  catch (e) { aviso(e.message, "err"); }
+});
+
+document.getElementById("psNuevo").addEventListener("click", async () => {
+  const nombre = prompt("Nombre del descanso (ej. Pausa activa):");
+  if (!nombre || !nombre.trim()) return;
+  const inicio = prompt("Hora de inicio en formato 24 h (ej. 10:00):");
+  if (!inicio) return;
+  const fin = prompt("Hora de fin en formato 24 h (ej. 10:10):");
+  if (!fin) return;
+  try { await pedir("/config/pausas", "POST", { nombre: nombre.trim(), inicio: inicio.trim(), fin: fin.trim() }); aviso("Descanso agregado", "ok"); await cargar(); }
+  catch (e) { aviso(e.message, "err"); }
 });
 
 cargar().catch((e) => aviso(e.message, "err"));

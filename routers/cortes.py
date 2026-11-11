@@ -24,12 +24,17 @@ ROLES_SUPERVISION = ("admin", "supervisor")
 HORA_VALIDA = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 
 # Horario de planta: 6:00 a 15:50, desayuno 8:00-8:20 y almuerzo 12:00-13:00 = 510 min de trabajo
-# (la misma jornada de la hoja de balanceo del Excel)
+# (la misma jornada de la hoja de balanceo del Excel). Los cortes son las pasadas de la supervisora;
+# los descansos van aparte y se descuentan del tramo en que caen.
 CORTES_INICIALES = [
-    ("Entrada", "06:00", 0),
-    ("Desayuno", "08:00", 20),
-    ("Almuerzo", "12:00", 60),
-    ("Salida", "15:50", 0),
+    ("Entrada", "06:00"),
+    ("Desayuno", "08:00"),
+    ("Almuerzo", "12:00"),
+    ("Salida", "15:50"),
+]
+PAUSAS_INICIALES = [
+    ("Desayuno", "08:00", "08:20"),
+    ("Almuerzo", "12:00", "13:00"),
 ]
 
 
@@ -42,16 +47,40 @@ def asegurar_schema_cortes(cursor):
             descanso_min INTEGER DEFAULT 0,
             activo BOOLEAN DEFAULT TRUE
         )""")
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS pausas_horario(
+            id SERIAL PRIMARY KEY,
+            nombre TEXT NOT NULL,
+            inicio TEXT NOT NULL,
+            fin TEXT NOT NULL,
+            activo BOOLEAN DEFAULT TRUE
+        )""")
     cursor.execute("ALTER TABLE registros_produccion ADD COLUMN IF NOT EXISTS registrado_por INTEGER")
     cursor.execute("ALTER TABLE registros_produccion ADD COLUMN IF NOT EXISTS corte_id INTEGER")
     cursor.execute("ALTER TABLE registros_produccion ADD COLUMN IF NOT EXISTS fecha_corte DATE")
+    cursor.execute("ALTER TABLE registros_produccion ADD COLUMN IF NOT EXISTS observacion TEXT")
+    cursor.execute("ALTER TABLE ordenes ADD COLUMN IF NOT EXISTS nota TEXT")
+
     cursor.execute("SELECT COUNT(*) FROM cortes_horario")
     if cursor.fetchone()[0] == 0:
-        for nombre, hora, descanso in CORTES_INICIALES:
-            cursor.execute(
-                "INSERT INTO cortes_horario (nombre, hora, descanso_min) VALUES (%s, %s, %s)",
-                (nombre, hora, descanso),
-            )
+        for nombre, hora in CORTES_INICIALES:
+            cursor.execute("INSERT INTO cortes_horario (nombre, hora) VALUES (%s, %s)", (nombre, hora))
+
+    cursor.execute("SELECT COUNT(*) FROM pausas_horario")
+    if cursor.fetchone()[0] == 0:
+        # Paso del modelo anterior (descanso pegado al corte) a descansos aparte, sin cambiar los tramos
+        cursor.execute("SELECT id, nombre, hora, COALESCE(descanso_min, 0) FROM cortes_horario WHERE COALESCE(descanso_min, 0) > 0")
+        viejos = cursor.fetchall()
+        if viejos:
+            for id_, nombre, hora, descanso in viejos:
+                fin = a_minutos(hora) + descanso
+                cursor.execute("INSERT INTO pausas_horario (nombre, inicio, fin) VALUES (%s, %s, %s)",
+                               (nombre, hora, f"{fin // 60:02d}:{fin % 60:02d}"))
+                cursor.execute("UPDATE cortes_horario SET descanso_min = 0 WHERE id = %s", (id_,))
+        else:
+            for nombre, inicio, fin in PAUSAS_INICIALES:
+                cursor.execute("INSERT INTO pausas_horario (nombre, inicio, fin) VALUES (%s, %s, %s)",
+                               (nombre, inicio, fin))
 
 
 def hoy():
@@ -63,32 +92,41 @@ def a_minutos(hora: str) -> int:
     return int(h) * 60 + int(m)
 
 
+def pausas_activas(cursor):
+    cursor.execute("SELECT nombre, inicio, fin FROM pausas_horario WHERE COALESCE(activo, TRUE) = TRUE")
+    return [(r[0], a_minutos(r[1]), a_minutos(r[2])) for r in cursor.fetchall()]
+
+
 def cortes_activos(cursor):
     cursor.execute("""
-        SELECT id, nombre, hora, COALESCE(descanso_min, 0)
+        SELECT id, nombre, hora
         FROM cortes_horario WHERE COALESCE(activo, TRUE) = TRUE
     """)
-    cortes = [{"id": r[0], "nombre": r[1], "hora": r[2], "descanso_min": r[3]} for r in cursor.fetchall()]
+    cortes = [{"id": r[0], "nombre": r[1], "hora": r[2], "descanso_min": 0} for r in cursor.fetchall()]
     cortes.sort(key=lambda x: a_minutos(x["hora"]))
-    # Cada corte cierra el tramo que empezó al terminar el descanso del corte anterior
+    pausas = pausas_activas(cursor)
+    # Cada corte cierra el tramo desde el corte anterior; los descansos que caen dentro se descuentan
     for i, corte in enumerate(cortes):
         if i == 0:
             corte["desde"] = None
             corte["minutos_tramo"] = 0
-        else:
-            previo = cortes[i - 1]
-            inicio = a_minutos(previo["hora"]) + previo["descanso_min"]
-            corte["desde"] = f"{inicio // 60:02d}:{inicio % 60:02d}"
-            corte["minutos_tramo"] = max(0, a_minutos(corte["hora"]) - inicio)
+            corte["pausas"] = []
+            continue
+        desde, hasta = a_minutos(cortes[i - 1]["hora"]), a_minutos(corte["hora"])
+        dentro = [(n, max(desde, ini), min(hasta, fin)) for n, ini, fin in pausas if min(hasta, fin) > max(desde, ini)]
+        corte["desde"] = cortes[i - 1]["hora"]
+        corte["minutos_tramo"] = max(0, hasta - desde - sum(f - i_ for _, i_, f in dentro))
+        corte["pausas"] = [n for n, _, _ in dentro]
     return cortes
 
 
 def corte_sugerido(cortes, ahora: datetime):
-    """El corte que cierra el tramo en curso: el primero cuya hora aún no pasó hace más de 90 min."""
+    """El corte que cierra el tramo en curso: el primero cuya hora no pasó hace más de 30 min
+    (margen para la pasada que se está haciendo; con pasadas cada hora y media, más margen propondría la anterior)."""
     minutos = ahora.hour * 60 + ahora.minute
     cierres = [c for c in cortes if c["desde"]]
     for corte in cierres:
-        if minutos <= a_minutos(corte["hora"]) + 90:
+        if minutos <= a_minutos(corte["hora"]) + 30:
             return corte["id"]
     return cierres[-1]["id"] if cierres else None
 
@@ -109,8 +147,9 @@ def supervisor_android(payload: dict = Depends(leer_token_android)):
     return {"user_id": row[0], "username": row[1], "role": row[2]}
 
 
-def etiqueta_orden(orden_id, maquina):
-    return f"Orden #{orden_id} — {maquina or 'sin máquina'}"
+def etiqueta_orden(orden_id, maquina, nota=None):
+    texto = f"Orden #{orden_id} — {maquina or 'sin máquina'}"
+    return f"{texto} · {nota.strip()}" if nota and nota.strip() else texto
 
 
 def aplicar_avance(cursor, orden_id: int, actividad_id: int, delta: int):
@@ -137,7 +176,7 @@ def aplicar_avance(cursor, orden_id: int, actividad_id: int, delta: int):
 def registros_del_dia(cursor, fecha: date):
     cursor.execute("""
         SELECT r.id, r.operario_id, r.corte_id, r.orden_id, m.nombre, a.nombre, p.nombre,
-               r.cantidad, r.inicio, r.fin, COALESCE(r.tiempo, 0)
+               r.cantidad, r.inicio, r.fin, COALESCE(r.tiempo, 0), o.nota, r.observacion
         FROM registros_produccion r
         JOIN ordenes o ON o.id = r.orden_id
         LEFT JOIN maquinas m ON m.id = o.maquina_id
@@ -148,9 +187,9 @@ def registros_del_dia(cursor, fecha: date):
     """, (fecha,))
     return [{
         "id": r[0], "operario_id": r[1], "corte_id": r[2], "orden_id": r[3],
-        "orden": etiqueta_orden(r[3], r[4]), "actividad": r[5] or "", "proceso": r[6] or "",
+        "orden": etiqueta_orden(r[3], r[4], r[11]), "actividad": r[5] or "", "proceso": r[6] or "",
         "cantidad": r[7], "inicio": (r[8] or "")[11:16], "fin": (r[9] or "")[11:16],
-        "minutos": round(r[10] / 60),
+        "minutos": round(r[10] / 60), "observacion": r[12] or "",
     } for r in cursor.fetchall()]
 
 
@@ -185,13 +224,13 @@ def ordenes_abiertas(supervisor=Depends(supervisor_android)):
     conn = db()
     c = conn.cursor()
     c.execute("""
-        SELECT o.id, m.nombre, o.cantidad, COALESCE(o.porcentaje, 0)
+        SELECT o.id, m.nombre, o.cantidad, COALESCE(o.porcentaje, 0), o.nota
         FROM ordenes o LEFT JOIN maquinas m ON m.id = o.maquina_id
         WHERE o.estado != 'CERRADA'
         ORDER BY o.id DESC
     """)
-    datos = [{"id": r[0], "etiqueta": etiqueta_orden(r[0], r[1]), "cantidad": r[2],
-              "porcentaje": float(r[3])} for r in c.fetchall()]
+    datos = [{"id": r[0], "etiqueta": etiqueta_orden(r[0], r[1], r[4]), "maquina": r[1] or "",
+              "nota": r[4] or "", "cantidad": r[2], "porcentaje": float(r[3])} for r in c.fetchall()]
     conn.close()
     return datos
 
@@ -229,6 +268,8 @@ def registrar(data: dict, supervisor=Depends(supervisor_android)):
         raise HTTPException(status_code=400, detail="La cantidad no puede ser negativa")
     dia = date.fromisoformat(data["fecha"]) if data.get("fecha") else hoy()
     minutos_pedidos = data.get("minutos")
+    # Observación libre: pieza, cliente, "exportación"…
+    observacion = str(data.get("observacion") or "").strip()[:200] or None
 
     conn = db()
     c = conn.cursor()
@@ -254,9 +295,10 @@ def registrar(data: dict, supervisor=Depends(supervisor_android)):
             SELECT id FROM registros_produccion
             WHERE operario_id = %s AND fecha_corte = %s AND corte_id = %s
               AND orden_id = %s AND actividad_id = %s
-        """, (operario_id, dia, corte_id, orden_id, actividad_id))
+              AND lower(COALESCE(observacion, '')) = lower(%s)
+        """, (operario_id, dia, corte_id, orden_id, actividad_id, observacion or ""))
         if c.fetchone():
-            raise HTTPException(status_code=409, detail="Esa actividad ya está registrada para este operario en este corte. Bórrela y regístrela de nuevo para corregirla.")
+            raise HTTPException(status_code=409, detail="Esa actividad ya está registrada para este operario en este corte. Bórrela y regístrela de nuevo para corregirla, o escriba una observación distinta si es otra pieza.")
 
         # El tiempo se reparte dentro del tramo: cada actividad empieza donde terminó la anterior
         c.execute("""
@@ -279,11 +321,11 @@ def registrar(data: dict, supervisor=Depends(supervisor_android)):
         c.execute("""
             INSERT INTO registros_produccion
                 (operario_id, orden_id, actividad_id, cantidad, inicio, fin, tiempo,
-                 registrado_por, corte_id, fecha_corte)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id
+                 registrado_por, corte_id, fecha_corte, observacion)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id
         """, (operario_id, orden_id, actividad_id, cantidad,
               inicio.strftime("%Y-%m-%d %H:%M:%S"), fin.strftime("%Y-%m-%d %H:%M:%S"), minutos * 60,
-              supervisor["user_id"], corte_id, dia))
+              supervisor["user_id"], corte_id, dia, observacion))
         registro_id = c.fetchone()[0]
         aplicar_avance(c, orden_id, actividad_id, cantidad)
         conn.commit()
@@ -341,41 +383,55 @@ def listar_cortes(request: Request):
     c = conn.cursor()
     asegurar_schema_cortes(c)
     conn.commit()
-    c.execute("SELECT id, nombre, hora, COALESCE(descanso_min, 0), COALESCE(activo, TRUE) FROM cortes_horario")
-    datos = [{"id": r[0], "nombre": r[1], "hora": r[2], "descanso_min": r[3], "activo": r[4]} for r in c.fetchall()]
+    c.execute("SELECT id, nombre, hora, COALESCE(activo, TRUE) FROM cortes_horario")
+    cortes = [{"id": r[0], "nombre": r[1], "hora": r[2], "activo": r[3]} for r in c.fetchall()]
+    c.execute("SELECT id, nombre, inicio, fin, COALESCE(activo, TRUE) FROM pausas_horario")
+    pausas = [{"id": r[0], "nombre": r[1], "inicio": r[2], "fin": r[3], "activo": r[4]} for r in c.fetchall()]
+    tramos = cortes_activos(c)
     conn.close()
-    datos.sort(key=lambda x: a_minutos(x["hora"]))
-    return {"cortes": datos}
+    cortes.sort(key=lambda x: a_minutos(x["hora"]))
+    pausas.sort(key=lambda x: a_minutos(x["inicio"]))
+    return {"cortes": cortes, "pausas": pausas,
+            "tramos": [{"id": t["id"], "desde": t["desde"], "minutos": t["minutos_tramo"], "pausas": t["pausas"]}
+                       for t in tramos]}
+
+
+def hora_valida(valor, campo="La hora"):
+    hora = str(valor or "").strip()
+    if len(hora) == 4:
+        hora = "0" + hora
+    if not HORA_VALIDA.match(hora):
+        raise HTTPException(status_code=400, detail=f"{campo} debe tener el formato HH:MM (24 horas)")
+    return hora
 
 
 def validar_corte(data: dict):
     nombre = str(data.get("nombre", "")).strip()
-    hora = str(data.get("hora", "")).strip()
-    if len(hora) == 4:
-        hora = "0" + hora
     if not nombre:
         raise HTTPException(status_code=400, detail="El nombre del corte es obligatorio")
-    if not HORA_VALIDA.match(hora):
-        raise HTTPException(status_code=400, detail="La hora debe tener el formato HH:MM (24 horas)")
-    try:
-        descanso = int(data.get("descanso_min") or 0)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="El descanso debe ser un número de minutos")
-    if descanso < 0 or descanso > 180:
-        raise HTTPException(status_code=400, detail="El descanso debe estar entre 0 y 180 minutos")
-    return nombre, hora, descanso
+    return nombre, hora_valida(data.get("hora"))
+
+
+def validar_pausa(data: dict):
+    nombre = str(data.get("nombre", "")).strip()
+    if not nombre:
+        raise HTTPException(status_code=400, detail="El nombre del descanso es obligatorio")
+    inicio = hora_valida(data.get("inicio"), "La hora de inicio")
+    fin = hora_valida(data.get("fin"), "La hora de fin")
+    if a_minutos(fin) <= a_minutos(inicio):
+        raise HTTPException(status_code=400, detail="El descanso debe terminar después de empezar")
+    return nombre, inicio, fin
 
 
 @router.post("/config/cortes")
 def crear_corte(data: dict, request: Request):
     if not require_admin(request):
         return JSONResponse({"detail": "No autorizado"}, status_code=401)
-    nombre, hora, descanso = validar_corte(data)
+    nombre, hora = validar_corte(data)
     conn = db()
     c = conn.cursor()
     asegurar_schema_cortes(c)
-    c.execute("INSERT INTO cortes_horario (nombre, hora, descanso_min) VALUES (%s, %s, %s) RETURNING id",
-              (nombre, hora, descanso))
+    c.execute("INSERT INTO cortes_horario (nombre, hora) VALUES (%s, %s) RETURNING id", (nombre, hora))
     nuevo = c.fetchone()[0]
     conn.commit()
     conn.close()
@@ -386,12 +442,42 @@ def crear_corte(data: dict, request: Request):
 def editar_corte(corte_id: int, data: dict, request: Request):
     if not require_admin(request):
         return JSONResponse({"detail": "No autorizado"}, status_code=401)
-    nombre, hora, descanso = validar_corte(data)
+    nombre, hora = validar_corte(data)
     activo = bool(data.get("activo", True))
     conn = db()
     c = conn.cursor()
-    c.execute("UPDATE cortes_horario SET nombre=%s, hora=%s, descanso_min=%s, activo=%s WHERE id=%s",
-              (nombre, hora, descanso, activo, corte_id))
+    c.execute("UPDATE cortes_horario SET nombre=%s, hora=%s, activo=%s WHERE id=%s",
+              (nombre, hora, activo, corte_id))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+
+@router.post("/config/pausas")
+def crear_pausa(data: dict, request: Request):
+    if not require_admin(request):
+        return JSONResponse({"detail": "No autorizado"}, status_code=401)
+    nombre, inicio, fin = validar_pausa(data)
+    conn = db()
+    c = conn.cursor()
+    asegurar_schema_cortes(c)
+    c.execute("INSERT INTO pausas_horario (nombre, inicio, fin) VALUES (%s, %s, %s) RETURNING id", (nombre, inicio, fin))
+    nuevo = c.fetchone()[0]
+    conn.commit()
+    conn.close()
+    return {"ok": True, "id": nuevo}
+
+
+@router.put("/config/pausas/{pausa_id}")
+def editar_pausa(pausa_id: int, data: dict, request: Request):
+    if not require_admin(request):
+        return JSONResponse({"detail": "No autorizado"}, status_code=401)
+    nombre, inicio, fin = validar_pausa(data)
+    activo = bool(data.get("activo", True))
+    conn = db()
+    c = conn.cursor()
+    c.execute("UPDATE pausas_horario SET nombre=%s, inicio=%s, fin=%s, activo=%s WHERE id=%s",
+              (nombre, inicio, fin, activo, pausa_id))
     conn.commit()
     conn.close()
     return {"ok": True}
@@ -402,7 +488,7 @@ def editar_corte(corte_id: int, data: dict, request: Request):
 def producto_en_proceso(cursor):
     cursor.execute("""
         SELECT o.id, m.nombre, o.cantidad, COALESCE(o.porcentaje, 0),
-               p.id, p.nombre, a.id, a.nombre, oa.cantidad_total, oa.cantidad_realizada
+               p.id, p.nombre, a.id, a.nombre, oa.cantidad_total, oa.cantidad_realizada, o.nota
         FROM ordenes o
         LEFT JOIN maquinas m ON m.id = o.maquina_id
         JOIN orden_actividades oa ON oa.orden_id = o.id
@@ -415,7 +501,7 @@ def producto_en_proceso(cursor):
     ordenes = {}
     for r in cursor.fetchall():
         orden = ordenes.setdefault(r[0], {
-            "id": r[0], "etiqueta": etiqueta_orden(r[0], r[1]), "cantidad": r[2],
+            "id": r[0], "etiqueta": etiqueta_orden(r[0], r[1], r[10]), "cantidad": r[2],
             "porcentaje": float(r[3]), "etapas": [],
         })
         orden["etapas"].append({

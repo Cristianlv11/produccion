@@ -18,6 +18,10 @@
                 {% endfor %}
             </select>
         </div>
+        <div class="form-group" style="margin-bottom:0; flex:2; min-width:200px;">
+            <label>Nota (opcional):</label>
+            <input name="nota" type="text" maxlength="80" placeholder="Exportación, cliente, lote…">
+        </div>
         <button type="submit" class="btn">Crear</button>
     </form>
 </div>
@@ -36,7 +40,7 @@
     <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:15px; flex-wrap:wrap; gap:10px;">
         <div>
             <h3 style="margin:0; font-size:1.25rem;">
-                Orden {{o.id}} — {{o.producto}}
+                Orden {{o.id}} — {{o.producto}}{% if o.nota %} · {{ o.nota }}{% endif %}
                 <span style="color:var(--text-muted); font-weight:400; font-size:1rem;">({{o.cantidad}} uds)</span>
             </h3>
             {% if o.estado == "CERRADA" %}
