@@ -89,7 +89,7 @@ def ver_usuarios(request: Request, error: str = None):
     })
 
 
-ROLES_VALIDOS = ("admin", "operario", "jefe_tickets")
+ROLES_VALIDOS = ("admin", "operario", "jefe_tickets", "supervisor")
 
 
 def volver(error: str = None, ok: str = None):

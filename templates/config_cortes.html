@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+
+{% block content %}
+<style>
+.ct-wrap { max-width: 760px; }
+.ct-wrap p { color: var(--text-muted); font-size: 14px; }
+table.ct { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: var(--shadow-sm); border: 1px solid var(--border-color); }
+table.ct th { text-align: left; font-size: 12px; color: var(--text-muted); padding: 10px; border-bottom: 1px solid var(--border-color); background: #f0f7f2; }
+table.ct td { padding: 6px 10px; border-bottom: 1px solid #f1f5f9; font-size: 14px; }
+table.ct input[type=text], table.ct input[type=time], table.ct input[type=number] { height: 34px; border: 1px solid #e2e8f0; border-radius: 5px; padding: 0 8px; font-size: 14px; width: 100%; box-sizing: border-box; }
+table.ct tr.inactivo td { color: #94a3b8; }
+.ct-tramo { font-size: 13px; color: var(--text-muted); white-space: nowrap; }
+.ct-btn { height: 38px; padding: 0 14px; border-radius: 6px; border: none; background: var(--primary); color: white; font-weight: 600; cursor: pointer; margin-top: 12px; }
+#ctStatus { min-height: 22px; font-weight: 700; margin: 8px 0; }
+.ok { color: #15803d; } .err { color: #b91c1c; }
+.ct-total { margin-top: 10px; font-size: 14px; font-weight: 600; }
+</style>
+
+<div class="ct-wrap">
+  <h1>Horario de cortes</h1>
+  <p>En cada corte la supervisora pasa por los puestos y registra en la app lo que hizo cada operario desde el corte anterior.
+     El tramo empieza cuando termina el descanso del corte anterior. Los cambios se guardan al salir de cada casilla.</p>
+
+  <div id="ctStatus"></div>
+  <table class="ct">
+    <thead><tr><th>Corte</th><th>Hora</th><th>Descanso (min)</th><th>Tramo que cierra</th><th>Activo</th></tr></thead>
+    <tbody id="ctFilas"></tbody>
+  </table>
+  <div class="ct-total" id="ctTotal"></div>
+  <button class="ct-btn" id="ctNuevo">+ Agregar corte</button>
+</div>
+
+<script>
+let cortes = [];
+const esc = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const min = (h) => { const [a, b] = h.split(":").map(Number); return a * 60 + b; };
+const hhmm = (m) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+function aviso(t, c) { const s = document.getElementById("ctStatus"); s.textContent = t; s.className = c || ""; }
+
+async function pedir(url, metodo = "GET", datos) {
+  const op = { method: metodo, headers: {} };
+  if (datos) { op.headers["Content-Type"] = "application/json"; op.body = JSON.stringify(datos); }
+  const r = await fetch(url, op);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.detail || "Error al guardar");
+  return j;
+}
+
+function pintar() {
+  const activos = cortes.filter((c) => c.activo).sort((a, b) => min(a.hora) - min(b.hora));
+  let total = 0;
+  const tramo = {};
+  activos.forEach((c, i) => {
+    if (i === 0) { tramo[c.id] = "Inicio de jornada"; return; }
+    const desde = min(activos[i - 1].hora) + Number(activos[i - 1].descanso_min || 0);
+    const mins = Math.max(0, min(c.hora) - desde);
+    total += mins;
+    tramo[c.id] = `${hhmm(desde)} – ${c.hora} (${mins} min)`;
+  });
+  document.getElementById("ctFilas").innerHTML = cortes.map((c) => `
+    <tr data-id="${c.id}" class="${c.activo ? "" : "inactivo"}">
+      <td><input type="text" data-campo="nombre" value="${esc(c.nombre)}"></td>
+      <td><input type="time" data-campo="hora" value="${esc(c.hora)}"></td>
+      <td><input type="number" min="0" max="180" data-campo="descanso_min" value="${c.descanso_min}"></td>
+      <td class="ct-tramo">${c.activo ? tramo[c.id] || "" : "Inactivo"}</td>
+      <td><input type="checkbox" data-campo="activo" ${c.activo ? "checked" : ""}></td>
+    </tr>`).join("");
+  document.getElementById("ctTotal").textContent = `Tiempo de trabajo del día: ${total} min (${(total / 60).toFixed(1)} h)`;
+}
+
+async function cargar() {
+  cortes = (await pedir("/config/cortes")).cortes;
+  pintar();
+}
+
+document.addEventListener("change", async (ev) => {
+  const tr = ev.target.closest("tr[data-id]");
+  if (!tr) return;
+  const c = cortes.find((x) => x.id === Number(tr.dataset.id));
+  const campo = ev.target.dataset.campo;
+  const valor = ev.target.type === "checkbox" ? ev.target.checked : ev.target.value;
+  const datos = { ...c, [campo]: valor };
+  try {
+    await pedir(`/config/cortes/${c.id}`, "PUT", datos);
+    Object.assign(c, datos);
+    aviso("✓ Guardado", "ok");
+    pintar();
+  } catch (e) { aviso(e.message, "err"); pintar(); }
+});
+
+document.getElementById("ctNuevo").addEventListener("click", async () => {
+  const nombre = prompt("Nombre del corte (ej. Pausa activa, Fin de turno):");
+  if (!nombre || !nombre.trim()) return;
+  const hora = prompt("Hora del corte en formato 24 h (ej. 15:30):");
+  if (!hora) return;
+  try {
+    await pedir("/config/cortes", "POST", { nombre: nombre.trim(), hora: hora.trim(), descanso_min: 0 });
+    aviso("Corte agregado", "ok");
+    await cargar();
+  } catch (e) { aviso(e.message, "err"); }
+});
+
+cargar().catch((e) => aviso(e.message, "err"));
+</script>
+{% endblock %}

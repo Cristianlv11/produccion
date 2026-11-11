@@ -38,6 +38,8 @@ def admin_post(request: Request, user: str = Form(...), password: str = Form(...
                 next_page = "/tickets/admin"
             elif role == "operario":
                 next_page = "/inicio_operario"
+            elif role == "supervisor":
+                next_page = "/produccion_en_proceso"
             else:
                 next_page = "/"
 

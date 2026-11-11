@@ -25,6 +25,7 @@ from routers.admin_tools import router as admin_tools_router
 from routers import planificador
 from routers import configuracion
 from routers.tiempos import router as tiempos_router
+from routers.cortes import router as cortes_router, asegurar_schema_cortes
 from routers import admin_panel
 from routers.tickets import router as tickets_router
 from routers.excel_ops import router as excel_ops_router
@@ -70,7 +71,11 @@ RUTAS_PUBLICAS_PREFIJOS = (
     "/static/",
     "/procesos/",
     "/actividades/",
+    "/supervisor/",  # API de la app en modo cortes: la protege el token Android de supervisión
 )
+
+# Páginas web que también puede ver un usuario con rol supervisor
+RUTAS_SUPERVISOR = {"/produccion_en_proceso"}
 
 def ruta_publica(path: str):
     return path in RUTAS_PUBLICAS_EXACTAS or any(
@@ -131,6 +136,9 @@ async def proteger_rutas_administrativas(request: Request, call_next):
     if not es_operario_ruta and not es_jefe_ruta:
         if request.session.get("username") and request.session.get("role") == "admin":
             return await call_next(request)
+        if (path in RUTAS_SUPERVISOR and request.session.get("username")
+                and request.session.get("role") == "supervisor"):
+            return await call_next(request)
         if request.method in ("GET", "HEAD"):
             destino = path.strip("/") or ""
             return RedirectResponse(f"/admin?next={destino}", status_code=303)
@@ -184,6 +192,7 @@ app.include_router(bonos_router)
 app.include_router(admin_tools_router)
 app.include_router(configuracion.router)
 app.include_router(tiempos_router)
+app.include_router(cortes_router)
 from routers.dashboard import router as dashboard_router
 app.include_router(dashboard_router)
 app.include_router(admin_panel.router)
@@ -345,6 +354,7 @@ def startup():
     c.execute("ALTER TABLE actividades ADD COLUMN IF NOT EXISTS activo BOOLEAN DEFAULT TRUE")
     c.execute("ALTER TABLE actividades ADD COLUMN IF NOT EXISTS herramienta TEXT")
     c.execute("ALTER TABLE actividades ADD COLUMN IF NOT EXISTS operario_responsable_id INTEGER")
+    asegurar_schema_cortes(c)
 
     c.execute("""
     CREATE TABLE IF NOT EXISTS tickets(

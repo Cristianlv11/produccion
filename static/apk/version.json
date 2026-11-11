@@ -1,8 +1,8 @@
 {
-  "versionCode": 3,
-  "versionName": "1.2",
-  "apk": "produccionhmi-3.apk",
-  "sha256": "d07e300f954aab9518b161c5dc4947f11f507a77c1b8a1fc1555c9311bcbd69b",
-  "notes": "Muestra el número de orden con el nombre de la máquina. La app ahora se actualiza sola.",
-  "forceUpdate": false
+    "versionCode":  4,
+    "versionName":  "1.3",
+    "apk":  "produccionhmi-4.apk",
+    "sha256":  "77a75f41c24489f0bcd64a9c0337ed5a193431f9092f48613a7353c993ae2072",
+    "notes":  "Nuevo: registro por cortes para supervisión. Mejoras en las listas de orden y actividad.",
+    "forceUpdate":  false
 }

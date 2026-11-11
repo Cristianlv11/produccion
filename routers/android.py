@@ -159,7 +159,9 @@ def login_android(request: Request, data: dict):
 
     user_id, username, _, role, operario_id, operario_nombre, debe_cambiar = row
 
-    if role != "operario" or not operario_id:
+    # Supervisión (admin o supervisor) entra sin operario y usa la pantalla de cortes
+    es_supervision = role in ("admin", "supervisor")
+    if not es_supervision and (role != "operario" or not operario_id):
         raise HTTPException(status_code=403, detail="Este usuario no tiene operario asignado")
 
     token = generar_token_android(user_id, username, role, operario_id)
@@ -173,11 +175,11 @@ def login_android(request: Request, data: dict):
             "username": username,
             "role": role,
         },
-        "operario": {
+        "operario": None if es_supervision else {
             "id": operario_id,
             "nombre": operario_nombre,
         },
-        "debe_cambiar_password": bool(debe_cambiar),
+        "debe_cambiar_password": bool(debe_cambiar) and not es_supervision,
     }
 
 

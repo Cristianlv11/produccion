@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+
+{% block content %}
+<style>
+.ep-head p { color: var(--text-muted); font-size: 14px; margin-top: 0; }
+.ep-orden { background: white; border-radius: 8px; border: 1px solid var(--border-color); box-shadow: var(--shadow-sm); margin-bottom: 16px; overflow: hidden; }
+.ep-orden-head { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: baseline; padding: 12px 14px; background: #f0f7f2; border-bottom: 1px solid var(--border-color); }
+.ep-orden-head h3 { margin: 0; font-size: 17px; color: var(--primary-hover); }
+.ep-orden-head span { font-size: 13px; color: var(--text-muted); font-weight: 600; }
+.ep-wrap { overflow-x: auto; }
+table.ep { width: 100%; border-collapse: collapse; font-size: 14px; min-width: 640px; }
+table.ep th { text-align: left; font-size: 12px; color: var(--text-muted); padding: 8px 10px; border-bottom: 1px solid var(--border-color); white-space: nowrap; }
+table.ep td { padding: 7px 10px; border-bottom: 1px solid #f1f5f9; }
+table.ep td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+table.ep tr.proceso td { background: #fafafa; font-weight: 700; color: #334155; font-size: 13px; }
+.barra { height: 8px; background: #e5e7eb; border-radius: 4px; overflow: hidden; min-width: 90px; }
+.barra div { height: 100%; background: var(--success); }
+.espera { font-weight: 700; color: #b45309; }
+.ep-vacio { padding: 40px; text-align: center; color: var(--text-muted); background: white; border-radius: 8px; border: 1px dashed #cbd5e1; }
+</style>
+
+<div class="ep-head">
+  <h1>Producto en proceso</h1>
+  <p>Por cada orden abierta: cuántas unidades ya pasaron por cada actividad y cuántas esperan la siguiente etapa.
+     Se alimenta con los registros que la supervisora hace en cada corte. En naranja, donde se acumula el trabajo.</p>
+</div>
+
+{% if not ordenes %}
+<div class="ep-vacio">No hay órdenes abiertas.</div>
+{% endif %}
+
+{% for o in ordenes %}
+<section class="ep-orden">
+  <div class="ep-orden-head">
+    <h3>{{ o.etiqueta }}</h3>
+    <span>{{ o.cantidad }} unidades pedidas</span>
+    <span>Avance {{ '%.0f'|format(o.porcentaje) }} %</span>
+    <span>{{ o.en_proceso }} piezas en espera entre etapas</span>
+  </div>
+  <div class="ep-wrap">
+    <table class="ep">
+      <thead><tr><th>Actividad</th><th>Avance</th><th class="num">Hechas</th><th class="num">Faltan</th><th class="num">Esperan la siguiente etapa</th></tr></thead>
+      <tbody>
+      {% set ns = namespace(proceso=None) %}
+      {% for e in o.etapas %}
+        {% if e.proceso != ns.proceso %}
+        <tr class="proceso"><td colspan="5">{{ e.proceso }}</td></tr>
+        {% set ns.proceso = e.proceso %}
+        {% endif %}
+        <tr>
+          <td>{{ e.actividad }}</td>
+          <td><div class="barra"><div style="width: {{ (100 * e.hechas / e.total)|round|int if e.total else 0 }}%"></div></div></td>
+          <td class="num">{{ e.hechas }} / {{ e.total }}</td>
+          <td class="num">{{ e.faltan }}</td>
+          <td class="num {% if e.en_espera %}espera{% endif %}">{{ e.en_espera if e.en_espera else '—' }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endfor %}
+{% endblock %}
