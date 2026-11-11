@@ -63,6 +63,8 @@ def asegurar_schema_cortes(cursor):
     # Actividades indirectas (calibración, limpieza, esperas…): cuentan como tiempo trabajado
     # pero no entran en la eficiencia ni en los bonos
     cursor.execute("ALTER TABLE actividades ADD COLUMN IF NOT EXISTS indirecta BOOLEAN DEFAULT FALSE")
+    # Área del operario (Soldadura, Pintura…): solo agrupa la lista en la app; puede registrar en cualquier proceso
+    cursor.execute("ALTER TABLE operarios ADD COLUMN IF NOT EXISTS area TEXT")
     from costos import asegurar_parametros
     asegurar_parametros(cursor)
 
@@ -206,8 +208,8 @@ def jornada(fecha: str = "", supervisor=Depends(supervisor_android)):
         asegurar_schema_cortes(c)
         conn.commit()
         cortes = cortes_activos(c)
-        c.execute("SELECT id, nombre FROM operarios WHERE COALESCE(activo, TRUE) = TRUE ORDER BY nombre")
-        operarios = [{"id": r[0], "nombre": r[1]} for r in c.fetchall()]
+        c.execute("SELECT id, nombre, COALESCE(NULLIF(trim(area), ''), 'Sin área') FROM operarios WHERE COALESCE(activo, TRUE) = TRUE ORDER BY nombre")
+        operarios = [{"id": r[0], "nombre": r[1], "area": r[2]} for r in c.fetchall()]
         registros = registros_del_dia(c, dia)
     finally:
         conn.close()

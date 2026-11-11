@@ -76,10 +76,12 @@ const TAB_CONFIG = {
         cols: [
             { key: "id", label: "ID" },
             { key: "nombre", label: "Nombre" },
+            { key: "area", label: "Área" },
             { key: "activo", label: "Estado" }
         ],
         fields: [
-            { key: "nombre", label: "Nombre del Operario", type: "text", required: true }
+            { key: "nombre", label: "Nombre del Operario", type: "text", required: true },
+            { key: "area", label: "Área (Soldadura, Pintura, Ensamble 1…). Agrupa la lista en la app", type: "text", required: false }
         ]
     },
     maquinas: {

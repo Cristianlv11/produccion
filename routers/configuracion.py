@@ -304,8 +304,8 @@ def ver_operarios(request: Request):
     conn = db()
     c = conn.cursor()
     try:
-        c.execute("SELECT id, nombre, activo FROM operarios ORDER BY id")
-        datos = [{"id": r[0], "nombre": r[1], "activo": r[2]} for r in c.fetchall()]
+        c.execute("SELECT id, nombre, activo, COALESCE(area, '') FROM operarios ORDER BY COALESCE(area, ''), nombre")
+        datos = [{"id": r[0], "nombre": r[1], "activo": r[2], "area": r[3]} for r in c.fetchall()]
     except Exception:
         conn.rollback()
         # Fallback si la columna no existe aún
@@ -321,7 +321,8 @@ def crear_operario(data: dict, request: Request):
     conn = db()
     c = conn.cursor()
     sincronizar_secuencia(c, "operarios")
-    c.execute("INSERT INTO operarios (nombre) VALUES (%s)", (nombre,))
+    area = str(data.get("area") or "").strip()[:60] or None
+    c.execute("INSERT INTO operarios (nombre, area) VALUES (%s, %s)", (nombre, area))
     sincronizar_secuencia(c, "operarios")
     conn.commit()
     conn.close()
@@ -333,7 +334,8 @@ def editar_operario(id: int, data: dict, request: Request):
     nombre = texto_obligatorio(data, "nombre", "Nombre")
     conn = db()
     c = conn.cursor()
-    c.execute("UPDATE operarios SET nombre=%s WHERE id=%s", (nombre, id))
+    area = str(data.get("area") or "").strip()[:60] or None
+    c.execute("UPDATE operarios SET nombre=%s, area=%s WHERE id=%s", (nombre, area, id))
     conn.commit()
     conn.close()
     return {"ok": True}
