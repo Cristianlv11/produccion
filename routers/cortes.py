@@ -170,12 +170,9 @@ def aplicar_avance(cursor, orden_id: int, actividad_id: int, delta: int):
     """, (orden_id,))
     row = cursor.fetchone()
     porcentaje = round((row[0] / row[1]) * 100, 2) if row and row[1] else 0
-    cursor.execute("""
-        UPDATE ordenes
-        SET porcentaje = %s,
-            estado = CASE WHEN %s >= 100 THEN 'CERRADA' ELSE estado END
-        WHERE id = %s
-    """, (porcentaje, porcentaje, orden_id))
+    # No se cierra sola: con un producto a medio configurar (o unidades por pieza distintas
+    # a las de la orden) llegaba al 100 % y se cerraba en plena producción. Se cierra en Producción.
+    cursor.execute("UPDATE ordenes SET porcentaje = %s WHERE id = %s", (porcentaje, orden_id))
 
 
 def registros_del_dia(cursor, fecha: date):
