@@ -3,6 +3,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from psycopg2 import sql
 from database import db
 from auth import require_admin
+from costos import costos_desde_unidades_hora
 
 router = APIRouter()
 
@@ -130,10 +131,17 @@ def float_opcional(data: dict, campo: str):
     except Exception:
         raise HTTPException(status_code=400, detail=f"{campo} invalido")
 
+def unidades_por_hora_de(data: dict):
+    """El estándar se pide en minutos por unidad (lo que entiende la supervisora);
+    se acepta también unidades por hora por compatibilidad."""
+    if str(data.get("minutos_unidad", "")).strip():
+        return 60.0 / float_obligatorio(data, "minutos_unidad", "Minutos por unidad")
+    return float_obligatorio(data, "unidades_por_hora", "Minutos por unidad")
+
+
 def crear_estandar(cursor, actividad_id: int, data: dict):
-    unidades = float_obligatorio(data, "unidades_por_hora", "Unidades por hora")
-    costo_unidad = float_opcional(data, "costo_mo_unidad")
-    costo_hora = float_opcional(data, "costo_mo_hora")
+    unidades = unidades_por_hora_de(data)
+    costo_unidad, costo_hora = costos_desde_unidades_hora(cursor, unidades)
     sincronizar_secuencia(cursor, "estandares_actividad")
     cursor.execute(
         """INSERT INTO estandares_actividad
@@ -399,13 +407,12 @@ def crear_actividad(data: dict, request: Request):
     if not require_admin(request): return JSONResponse({"detail": "No autorizado"}, status_code=401)
     proceso_id = entero_obligatorio(data, "proceso_id", "Proceso")
     nombre = texto_obligatorio(data, "nombre", "Nombre")
-    unidades_por_hora = float_obligatorio(data, "unidades_por_hora", "Unidades por hora")
-    costo_mo_unidad = float_opcional(data, "costo_mo_unidad")
-    costo_mo_hora = float_opcional(data, "costo_mo_hora")
-    
+    unidades_por_hora = unidades_por_hora_de(data)
+
     conn = db()
     c = conn.cursor()
     try:
+        costo_mo_unidad, costo_mo_hora = costos_desde_unidades_hora(c, unidades_por_hora)
         sincronizar_secuencia(c, "actividades")
         c.execute("INSERT INTO actividades (proceso_id, nombre) VALUES (%s, %s) RETURNING id", (proceso_id, nombre))
         act_id = c.fetchone()[0]
@@ -418,7 +425,9 @@ def crear_actividad(data: dict, request: Request):
             VALUES (%s, %s, %s, %s)
         """, (act_id, unidades_por_hora, costo_mo_unidad, costo_mo_hora))
         sincronizar_secuencia(c, "estandares_actividad")
-        
+        # Que aparezca de una vez en las órdenes abiertas de ese producto (y en la app)
+        sincronizar_actividad_en_ordenes_abiertas(c, act_id)
+
         conn.commit()
     except Exception:
         conn.rollback()
@@ -456,7 +465,8 @@ def ver_estandares(request: Request):
     """)
     datos = [{
         "id": r[0], "actividad_nombre": r[1], 
-        "unidades_por_hora": float(r[2]) if r[2] is not None else 0.0, 
+        "unidades_por_hora": float(r[2]) if r[2] is not None else 0.0,
+        "minutos_unidad": round(60.0 / float(r[2]), 2) if r[2] else None,
         "costo_mo_unidad": float(r[3]) if r[3] is not None else 0.0, 
         "costo_mo_hora": float(r[4]) if r[4] is not None else 0.0
     } for r in c.fetchall()]
@@ -466,11 +476,10 @@ def ver_estandares(request: Request):
 @router.put("/config/estandares/{id}")
 def editar_estandar(id: int, data: dict, request: Request):
     if not require_admin(request): return JSONResponse({"detail": "No autorizado"}, status_code=401)
-    unidades = float_obligatorio(data, "unidades_por_hora", "Unidades por hora")
-    c_unidad = float_opcional(data, "costo_mo_unidad")
-    c_hora = float_opcional(data, "costo_mo_hora")
+    unidades = unidades_por_hora_de(data)
     conn = db()
     c = conn.cursor()
+    c_unidad, c_hora = costos_desde_unidades_hora(c, unidades)
     c.execute("""
         UPDATE estandares_actividad 
         SET unidades_por_hora=%s, costo_mo_unidad=%s, costo_mo_hora=%s 
@@ -486,6 +495,17 @@ def editar_estandar(id: int, data: dict, request: Request):
 def configuracion(request: Request):
     if "username" not in request.session:
         return RedirectResponse("/admin?next=configuracion", 303)
+    if request.session.get("role") != "admin":
+        return RedirectResponse("/", 303)
+    return request.app.state.templates.TemplateResponse(
+        request=request, name="configuracion_hub.html", context={"request": request}
+    )
+
+
+@router.get("/configuracion/asistente", response_class=HTMLResponse)
+def configuracion_asistente(request: Request):
+    if "username" not in request.session:
+        return RedirectResponse("/admin?next=configuracion/asistente", 303)
     if request.session.get("role") != "admin":
         return RedirectResponse("/", 303)
     return request.app.state.templates.TemplateResponse(

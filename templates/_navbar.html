@@ -1,3 +1,8 @@
+{% set ruta = request.url.path if request else '' %}
+{% macro item(href, texto, prefijos) -%}
+  {%- set activo = (ruta == href) or (prefijos and (ruta.startswith(prefijos[0]) or (prefijos|length > 1 and ruta.startswith(prefijos[1])))) -%}
+  <a href="{{ href }}"{% if activo %} class="activo" aria-current="page"{% endif %}>{{ texto }}</a>
+{%- endmacro %}
 <header class="header">
     <a class="logo" href="/">
         <img src="/static/logo.png" alt="Inicio" style="height: 32px; border-radius: 6px; padding: 2px; background: white; border: 1px solid rgba(255,255,255,0.2);">
@@ -9,30 +14,25 @@
 
     <nav class="menu">
         {% if request and request.session.get("role") == "admin" %}
-        <a href="/">Inicio</a>
-        <a href="/panel">Producción</a>
-        <a href="/metricas_operarios">Métricas</a>
-        <a href="/wip">WIP & Cuellos</a>
-        <a href="/produccion_en_proceso">En proceso</a>
-        <a href="/bonos">Bonos</a>
-        <a href="/planificador">Planificador</a>
-        <a href="/tickets/admin">Tickets</a>
-        <a href="/usuarios">Usuarios</a>
-        <a href="/configuracion/tiempos">Tiempos</a>
-        <a href="/admin_tools">Tools</a>
-        <a href="/configuracion">Config</a>
-        <a href="/logout" class="btn-red" style="margin-left: 1rem; padding: 0.4rem 0.8rem; font-size: 0.85rem; border-radius: 6px;">Salir</a>
+        {{ item("/", "Inicio", none) }}
+        {{ item("/panel", "Producción", none) }}
+        {{ item("/produccion_en_proceso", "En proceso", none) }}
+        {{ item("/metricas_operarios", "Métricas", ["/metricas"]) }}
+        {{ item("/wip", "Cuellos de botella", none) }}
+        {{ item("/bonos", "Bonos", ["/bonos"]) }}
+        {{ item("/tickets/admin", "Tickets", ["/tickets"]) }}
+        {{ item("/configuracion", "Configuración", ["/configuracion", "/admin_tools"]) }}
+        <a href="/logout" class="menu-salir">Salir</a>
         {% elif request and request.session.get("role") == "supervisor" %}
         <a href="/produccion_en_proceso">Producto en proceso</a>
-        <a href="/logout" class="btn-red" style="margin-left: 1rem; padding: 0.4rem 0.8rem; font-size: 0.85rem; border-radius: 6px;">Salir</a>
+        <a href="/logout" class="menu-salir">Salir</a>
         {% elif request and request.session.get("role") == "jefe_tickets" %}
         <a href="/tickets/admin">Panel de Tickets</a>
-        <a href="/logout" class="btn-red" style="margin-left: 1rem; padding: 0.4rem 0.8rem; font-size: 0.85rem; border-radius: 6px;">Salir</a>
+        <a href="/logout" class="menu-salir">Salir</a>
         {% elif request and request.session.get("role") == "operario" %}
         <a href="/registro_web">Registro Web</a>
         <a href="/tickets/mis_tickets">Mis Tickets</a>
-        <a href="/logout" class="btn-red" style="margin-left: 1rem; padding: 0.4rem 0.8rem; font-size: 0.85rem; border-radius: 6px;">Salir</a>
-        {% else %}
+        <a href="/logout" class="menu-salir">Salir</a>
         {% endif %}
     </nav>
 </header>

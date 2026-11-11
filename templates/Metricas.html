@@ -1,163 +1,177 @@
 {% extends "base.html" %}
 
 {% block content %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
+{% macro pill(valor) -%}
+  {%- if valor is none -%}<span class="pill pill-gris" title="Sin tiempo estándar">—</span>
+  {%- elif valor >= 90 -%}<span class="pill pill-verde">{{ valor }}%</span>
+  {%- elif valor >= 70 -%}<span class="pill pill-ambar">{{ valor }}%</span>
+  {%- else -%}<span class="pill pill-rojo">{{ valor }}%</span>
+  {%- endif -%}
+{%- endmacro %}
 
-
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
-<div class="container">
-
-    <div class="topbar">
-        <div class="titulo">Métricas Operativas</div>
-        <div style="display: flex; gap: 10px;">
-            <a href="/informes_gerenciales" class="btn" >Ver Informes Gerenciales</a>
-            <a href="/" class="btn">Home</a>
-        </div>
-    </div>
-
-    <section class="export-panel">
-        <h2>Exportar Excel detallado</h2>
-        <div class="export-grid">
-            <div class="export-option">
-                <h3>Diario</h3>
-                <div class="export-actions">
-                    <a class="btn" href="/metricas/exportar_excel?periodo=diario">Hoy</a>
-                </div>
-                <form class="export-form" action="/metricas/exportar_excel" method="get">
-    <input type="hidden" name="csrf_token" value="{{ request.session.csrf_token }}">
-                    <input type="hidden" name="periodo" value="diario">
-                    <input type="date" name="fecha" required>
-                    <button class="btn" type="submit">Descargar fecha</button>
-                </form>
-            </div>
-
-            <div class="export-option">
-                <h3>Semanal</h3>
-                <div class="export-actions">
-                    <a class="btn" href="/metricas/exportar_excel?periodo=semanal">Semana actual</a>
-                </div>
-                <form class="export-form" action="/metricas/exportar_excel" method="get">
-    <input type="hidden" name="csrf_token" value="{{ request.session.csrf_token }}">
-                    <input type="hidden" name="periodo" value="semanal">
-                    <input type="date" name="fecha" required>
-                    <button class="btn" type="submit">Descargar semana</button>
-                </form>
-            </div>
-
-            <div class="export-option">
-                <h3>Mensual</h3>
-                <div class="export-actions">
-                    <a class="btn" href="/metricas/exportar_excel?periodo=mensual">Mes actual</a>
-                </div>
-                <form class="export-form" action="/metricas/exportar_excel" method="get">
-    <input type="hidden" name="csrf_token" value="{{ request.session.csrf_token }}">
-                    <input type="hidden" name="periodo" value="mensual">
-                    <input type="month" name="fecha" required>
-                    <button class="btn" type="submit">Descargar mes</button>
-                </form>
-            </div>
-        </div>
-    </section>
-
-    {% if semanas and semanas|length > 0 %}
-    <!-- Los gráficos se han trasladado a Informes Gerenciales -->
-    {% endif %}
-
-    {% if semanas %}
-        {% for semana in semanas %}
-            <section class="semana-card">
-                <div class="semana-header">
-                    <div>
-                        <h2>Semana {{ semana.etiqueta }}</h2>
-                        <span>Resumen general e individual de rendimiento</span>
-                    </div>
-                    <span>{{ semana.detalle|length }} registro(s)</span>
-                </div>
-
-                <div class="kpis">
-                    <div class="kpi">
-                        <span>Eficiencia</span>
-                        <strong>{{ semana.total.eficiencia }}%</strong>
-                    </div>
-                    <div class="kpi">
-                        <span>Unidades</span>
-                        <strong>{{ semana.total.unidades }}</strong>
-                    </div>
-                    <div class="kpi">
-                        <span>Horas</span>
-                        <strong>{{ semana.total.horas }}</strong>
-                    </div>
-                    <div class="kpi">
-                        <span>Unid/Hora</span>
-                        <strong>{{ semana.total.productividad }}</strong>
-                    </div>
-                </div>
-
-                <div class="bloque">
-                    <h3>Operarios de la semana</h3>
-                    <div class="operario-list">
-                        {% for operario in semana.operarios %}
-                            <div class="operario-subbloque">
-                                <div class="operario-subheader">
-                                    <h4>{{ operario.nombre }}</h4>
-                                    <span>{{ operario.registros|length }} registro(s)</span>
-                                </div>
-
-                                <div class="operario-resumen">
-                                    <div class="operario-metrica">
-                                        <span>Eficiencia</span>
-                                        <strong>{{ operario.eficiencia }}%</strong>
-                                    </div>
-                                    <div class="operario-metrica">
-                                        <span>Utilización</span>
-                                        <strong>{{ operario.utilizacion }}%</strong>
-                                    </div>
-                                    <div class="operario-metrica">
-                                        <span>Unidades</span>
-                                        <strong>{{ operario.unidades }}</strong>
-                                    </div>
-                                    <div class="operario-metrica">
-                                        <span>Horas</span>
-                                        <strong>{{ operario.horas }}</strong>
-                                    </div>
-                                </div>
-
-                                <div class="operario-tabla">
-                                    <div class="table-responsive"><table class="table-striped">
-                                        <tr>
-                                            <th>Actividad</th>
-                                            <th>Cantidad</th>
-                                            <th>Horas</th>
-                                            <th>Inicio</th>
-                                            <th>Fin</th>
-                                        </tr>
-
-                                        {% for registro in operario.registros %}
-                                        <tr>
-                                            <td>{{ registro.actividad }}</td>
-                                            <td>{{ registro.cantidad }}</td>
-                                            <td>{{ registro.horas }}</td>
-                                            <td>{{ registro.inicio }}</td>
-                                            <td>{{ registro.fin }}</td>
-                                        </tr>
-                                        {% endfor %}
-                                    </table></div>
-                                </div>
-                            </div>
-                        {% endfor %}
-                    </div>
-                </div>
-            </section>
-        {% endfor %}
-    {% else %}
-        <div class="sin-datos">No hay registros de produccion para mostrar.</div>
-    {% endif %}
-
+<div class="page-title">
+  <div>
+    <h1>Métricas de producción</h1>
+    <p>Semana {{ m.etiqueta }}{% if semana_actual == m.lunes.isoformat() %} · semana actual{% endif %}</p>
+  </div>
+  <div class="semana-nav">
+    <a class="btn-ghost" href="/metricas_operarios?semana={{ anterior }}" title="Semana anterior">‹</a>
+    <select onchange="location.href='/metricas_operarios?semana='+this.value" aria-label="Semana">
+      {% for s in semanas %}
+        <option value="{{ s.valor }}" {% if s.valor == m.lunes.isoformat() %}selected{% endif %}>{{ s.etiqueta }}</option>
+      {% endfor %}
+    </select>
+    {% if siguiente %}<a class="btn-ghost" href="/metricas_operarios?semana={{ siguiente }}" title="Semana siguiente">›</a>{% else %}<span class="btn-ghost disabled">›</span>{% endif %}
+    <details class="menu-excel">
+      <summary class="btn">Descargar Excel</summary>
+      <div class="menu-excel-panel">
+        <a href="/metricas/exportar_excel?periodo=semanal&fecha={{ m.lunes.isoformat() }}">Esta semana</a>
+        <a href="/metricas/exportar_excel?periodo=diario">Solo hoy</a>
+        <a href="/metricas/exportar_excel?periodo=mensual&fecha={{ m.lunes.isoformat()[:7] }}">El mes completo</a>
+        <form action="/metricas/exportar_excel" method="get" class="menu-excel-dia">
+          <input type="hidden" name="periodo" value="diario">
+          <input type="date" name="fecha" value="{{ hoy }}" required>
+          <button class="btn btn-sm" type="submit">Un día</button>
+        </form>
+      </div>
+    </details>
+  </div>
 </div>
 
+{% if m.total.registros == 0 %}
+  <div class="vacio">
+    <div class="vacio-icono">📊</div>
+    <h2>No hay registros esta semana</h2>
+    <p>Las métricas aparecen cuando se registran actividades en las pasadas desde la app.</p>
+    {% if ultima_con_datos %}<a class="btn" href="/metricas_operarios?semana={{ ultima_con_datos }}">Ver la última semana con datos</a>{% endif %}
+  </div>
+{% else %}
+
+<section class="kpi-grid kpi-grid-4">
+  <div class="kpi-card">
+    <span class="kpi-title">Unidades</span>
+    <div class="kpi-value">{{ m.total.unidades }}</div>
+    <div class="kpi-help">{{ m.total.registros }} registros</div>
+  </div>
+  <div class="kpi-card">
+    <span class="kpi-title">Horas registradas</span>
+    <div class="kpi-value">{{ m.total.horas }}</div>
+    <div class="kpi-help">de {{ m.total.disponibles }} h disponibles</div>
+  </div>
+  <div class="kpi-card">
+    <span class="kpi-title">Eficiencia</span>
+    <div class="kpi-value">{{ pill(m.total.eficiencia) }}</div>
+    <div class="kpi-help">{% if m.total.cobertura is not none %}medida en el {{ m.total.cobertura|round|int }}% del tiempo{% else %}ninguna actividad tiene tiempo estándar{% endif %}</div>
+  </div>
+  <div class="kpi-card">
+    <span class="kpi-title">Tiempo registrado</span>
+    <div class="kpi-value">{{ m.total.registrado if m.total.registrado is not none else 0 }}%</div>
+    <div class="barra"><span style="width: {{ [m.total.registrado or 0, 100]|min }}%"></span></div>
+  </div>
+</section>
+
+<div class="grid-2">
+  <section class="section">
+    <h2>Día a día</h2>
+    <canvas id="chartDias" height="150"></canvas>
+  </section>
+  <section class="section">
+    <h2>Dónde se fue el tiempo</h2>
+    <div class="ranking">
+      {% set max_h = m.actividades[0].horas if m.actividades else 1 %}
+      {% for a in m.actividades %}
+        <div class="ranking-fila">
+          <div class="ranking-nombre" title="{{ a.nombre }}">{{ a.nombre }}<small>{{ a.maquina }}</small></div>
+          <div class="ranking-barra"><span style="width: {{ (a.horas / max_h * 100) if max_h else 0 }}%"></span></div>
+          <div class="ranking-valor">{{ a.horas }} h</div>
+        </div>
+      {% endfor %}
+    </div>
+  </section>
+</div>
+
+<section class="section">
+  <h2>Operarios</h2>
+  <p class="ayuda">Toca un operario para ver sus registros de la semana.</p>
+  <div class="tabla-ops">
+    <div class="tabla-ops-head">
+      <span>Operario</span><span>Unidades</span><span>Horas</span><span>Eficiencia</span><span>Tiempo registrado</span>
+    </div>
+    {% for op in m.operarios %}
+    <details class="op">
+      <summary>
+        <span class="op-nombre">{{ op.nombre }}<small>{{ op.dias_trabajados }} día{{ 's' if op.dias_trabajados != 1 }} · {{ op.registros }} registro{{ 's' if op.registros != 1 }}</small></span>
+        <span data-l="Unidades">{{ op.unidades }}</span>
+        <span data-l="Horas">{{ op.horas }}</span>
+        <span data-l="Eficiencia">{{ pill(op.eficiencia) }}</span>
+        <span data-l="Registrado" class="op-reg">
+          <span class="barra"><span style="width: {{ [op.registrado or 0, 100]|min }}%"></span></span>
+          {{ op.registrado|round|int if op.registrado is not none else 0 }}%
+        </span>
+      </summary>
+      <div class="table-container">
+        <table class="data-table">
+          <thead><tr><th>Día</th><th>Pasada</th><th>Hora</th><th>Actividad</th><th>Producto</th><th class="num">Cant.</th><th class="num">Horas</th><th>Efic.</th><th>Observación</th></tr></thead>
+          <tbody>
+          {% for r in op.detalle %}
+            <tr>
+              <td>{{ r.dia }}</td>
+              <td>{{ r.pasada or '—' }}</td>
+              <td class="muted">{{ r.hora }}</td>
+              <td>{{ r.actividad }}</td>
+              <td class="muted">{{ r.maquina }}{% if r.orden_id %}{{ " · " if r.maquina }}#{{ r.orden_id }}{% endif %}</td>
+              <td class="num">{{ r.cantidad }}</td>
+              <td class="num">{{ r.horas }}</td>
+              <td>{% if r.cantidad == 0 %}<span class="pill pill-gris" title="Sin unidades terminadas en este registro">en curso</span>{% else %}{{ pill(r.eficiencia) }}{% endif %}</td>
+              <td class="muted">{{ r.observacion }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+    {% endfor %}
+  </div>
+</section>
+
+<details class="section como-se-calcula">
+  <summary>¿Cómo se calculan estas cifras?</summary>
+  <ul>
+    <li><b>Horas registradas:</b> el tiempo de cada registro (de la hora de inicio a la de fin).</li>
+    <li><b>Eficiencia:</b> el tiempo que debió tomar según el tiempo estándar de cada actividad, dividido entre el tiempo real. 100% = al ritmo estándar. Verde desde 90%, ámbar desde 70%.</li>
+    <li>Las actividades <b>sin tiempo estándar</b> no se cuentan en la eficiencia (aparecen con «—»), para no bajarla. Se configuran en Configuración › Tiempos por producto.
+      {% if m.sin_estandar %}<br><span class="muted">Esta semana sin estándar: {{ m.sin_estandar|join(', ') }}.</span>{% endif %}</li>
+    <li>Un registro con <b>0 unidades</b> («en curso») cuenta su tiempo; las unidades se suman cuando se terminan, así que la eficiencia se ve bien en el total de la semana, no registro por registro.</li>
+    <li><b>Tiempo registrado:</b> horas registradas frente a las horas disponibles de los días que trabajó cada operario ({{ m.jornada_h }} h por día según el horario de pasadas, sin descansos). Si es bajo, faltó registrar tiempo.</li>
+  </ul>
+</details>
+
 <script>
-// Los gráficos se han trasladado a Informes Gerenciales.
-// Esta página ahora solo muestra la vista tabular clásica.
+(function () {
+  const dias = {{ m.dias | tojson }};
+  const verde = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#2d6a4f';
+  new Chart(document.getElementById('chartDias'), {
+    data: {
+      labels: dias.map(d => d.etiqueta),
+      datasets: [
+        { type: 'bar', label: 'Unidades', data: dias.map(d => d.unidades), backgroundColor: 'rgba(45,106,79,.75)', borderRadius: 6, yAxisID: 'y' },
+        { type: 'line', label: 'Eficiencia %', data: dias.map(d => d.eficiencia), borderColor: '#d97706', backgroundColor: '#d97706', tension: .3, spanGaps: true, yAxisID: 'y2' }
+      ]
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { position: 'bottom' } },
+      scales: {
+        y: { beginAtZero: true, title: { display: true, text: 'Unidades' }, grid: { color: '#eef0ea' } },
+        y2: { beginAtZero: true, suggestedMax: 120, position: 'right', grid: { display: false }, ticks: { callback: v => v + '%' } },
+        x: { grid: { display: false } }
+      }
+    }
+  });
+})();
 </script>
+{% endif %}
 {% endblock %}

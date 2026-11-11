@@ -8,7 +8,7 @@
         <h1 style="margin:0; font-size:24px; color:var(--text-dark);">Mantenimiento de Catálogos</h1>
         <p style="color: #64748b; margin-top: 4px;">Edita, crea o elimina ítems base del sistema de forma segura.</p>
     </div>
-    <a href="/admin_tools" class="btn-cancel" style="text-decoration: none;">&larr; Volver a Herramientas</a>
+    <a href="/configuracion" class="btn-cancel" style="text-decoration: none;">&larr; Volver a Configuración</a>
 </div>
 
 <div class="tabs-container" id="tabs">
@@ -124,9 +124,7 @@ const TAB_CONFIG = {
             { key: "proceso_id", label: "Proceso", type: "select", options: 'auxProcesos', required: true },
             { key: "nombre", label: "Nombre de la Actividad", type: "text", required: true },
             // Los estandares solo se piden al crear, no al editar (se editan en su pestaña)
-            { key: "unidades_por_hora", label: "Unidades por hora (Estándar)", type: "number", required: true, createOnly: true },
-            { key: "costo_mo_unidad", label: "Costo MO Unidad (Opcional)", type: "number", required: false, createOnly: true },
-            { key: "costo_mo_hora", label: "Costo MO Hora (Opcional)", type: "number", required: false, createOnly: true }
+            { key: "minutos_unidad", label: "¿Cuántos minutos toma hacer una unidad?", type: "number", required: true, createOnly: true }
         ]
     },
     estandares: {
@@ -137,15 +135,13 @@ const TAB_CONFIG = {
         cols: [
             { key: "id", label: "ID" },
             { key: "actividad_nombre", label: "Actividad" },
-            { key: "unidades_por_hora", label: "Unidades/hr" },
+            { key: "minutos_unidad", label: "Min / unidad" },
             { key: "costo_mo_unidad", label: "Costo Unidad" },
             { key: "costo_mo_hora", label: "Costo Hora" }
         ],
         fields: [
             // El ID de actividad no se edita aquí, solo los números
-            { key: "unidades_por_hora", label: "Unidades por hora", type: "number", required: true },
-            { key: "costo_mo_unidad", label: "Costo MO Unidad", type: "number", required: false },
-            { key: "costo_mo_hora", label: "Costo MO Hora", type: "number", required: false }
+            { key: "minutos_unidad", label: "Minutos por unidad (el costo se calcula solo)", type: "number", required: true }
         ]
     }
 };
@@ -180,8 +176,8 @@ async function switchTab(tabId) {
     currentTab = tabId;
     
     // Update active UI
-    document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-    event.currentTarget.classList.add('active');
+    document.querySelectorAll('.tab-btn').forEach(btn =>
+        btn.classList.toggle('active', btn.getAttribute('onclick') === `switchTab('${tabId}')`));
     
     const config = TAB_CONFIG[tabId];
     document.getElementById('currentTabTitle').innerText = config.title;
@@ -425,7 +421,8 @@ window.onload = async () => {
     // Initial fetch of dependent catalogs
     await loadDependencies();
     // Start with the default tab (which initializes UI & fetches table data)
-    switchTab(currentTab);
+    const tabUrl = new URLSearchParams(location.search).get('tab');
+    switchTab(tabUrl || currentTab);
 };
 </script>
 {% endblock %}

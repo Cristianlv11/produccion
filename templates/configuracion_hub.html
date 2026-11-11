@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-title">
+  <div>
+    <h1>Configuración</h1>
+    <p>Todo lo que se ajusta del sistema, en un solo lugar.</p>
+  </div>
+</div>
+
+<section class="hub-grupo">
+  <h2>Producto nuevo en 3 pasos</h2>
+  <div class="hub-grid">
+    <a class="hub-card hub-destacada" href="/configuracion/tiempos">
+      <div class="hub-icono">1️⃣</div>
+      <div><h3>Crear el producto</h3><p>En «Actividades y tiempos», toca «+ Producto nuevo» y escribe el nombre (por ejemplo, «Horno para plátano»).</p></div>
+    </a>
+    <a class="hub-card hub-destacada" href="/configuracion/tiempos">
+      <div class="hub-icono">2️⃣</div>
+      <div><h3>Ponerle procesos y actividades</h3><p>Con «+ Proceso» y «+ Nueva actividad». Solo escribe cuántos minutos toma cada una; el costo se calcula solo.</p></div>
+    </a>
+    <a class="hub-card hub-destacada" href="/panel">
+      <div class="hub-icono">3️⃣</div>
+      <div><h3>Crear la orden</h3><p>En «Producción», crea la orden con el producto y la cantidad. Si la orden ya existía, toca «Sincronizar» para que reciba las actividades nuevas.</p></div>
+    </a>
+  </div>
+</section>
+
+<section class="hub-grupo">
+  <h2>Día a día</h2>
+  <div class="hub-grid">
+    <a class="hub-card" href="/configuracion/tiempos">
+      <div class="hub-icono">⏱️</div>
+      <div><h3>Actividades y tiempos</h3><p>Agrega una actividad o un proceso a un producto que ya existe, o cambia sus minutos. Las órdenes abiertas la reciben de una vez.</p></div>
+    </a>
+    <a class="hub-card" href="/configuracion/cortes">
+      <div class="hub-icono">🕒</div>
+      <div><h3>Horario de pasadas</h3><p>Las horas de las pasadas y de los descansos (desayuno, almuerzo).</p></div>
+    </a>
+    <a class="hub-card" href="/admin_tools/editar_registros">
+      <div class="hub-icono">📝</div>
+      <div><h3>Corregir registros</h3><p>Busca un registro y corrige la cantidad, el tiempo, la actividad o la observación.</p></div>
+    </a>
+  </div>
+</section>
+
+<section class="hub-grupo">
+  <h2>Personas y productos</h2>
+  <div class="hub-grid">
+    <a class="hub-card" href="/admin_tools/editar_catalogos">
+      <div class="hub-icono">👷</div>
+      <div><h3>Operarios y productos</h3><p>Crear, editar o desactivar operarios, productos (máquinas), procesos y actividades.</p></div>
+    </a>
+    <a class="hub-card" href="/usuarios">
+      <div class="hub-icono">🔑</div>
+      <div><h3>Usuarios y accesos</h3><p>Quién entra a la web y a la app, y con qué permisos. Cambiar contraseñas.</p></div>
+    </a>
+    <a class="hub-card" href="/configuracion/asistente">
+      <div class="hub-icono">🧩</div>
+      <div><h3>Asistente rápido</h3><p>Crea un proceso con su primera actividad y su estándar en un solo formulario.</p></div>
+    </a>
+  </div>
+</section>
+
+<section class="hub-grupo">
+  <h2>Respaldo</h2>
+  <div class="hub-grid">
+    <button type="button" id="btn-backup" class="hub-card" onclick="lanzarBackup()">
+      <div class="hub-icono">☁️</div>
+      <div><h3>Hacer copia de seguridad</h3><p id="backup-texto">Guarda una copia de toda la información en la nube. Además se hace sola cada noche.</p></div>
+    </button>
+  </div>
+</section>
+
+<details class="hub-avanzado">
+  <summary>Opciones avanzadas (solo si sabes lo que haces)</summary>
+  <div class="hub-grid">
+    <a class="hub-card" href="/admin_tools/cargar_estandares_excel" onclick="return confirm('¿Cargar los tiempos estándar desde el archivo excel/estandares.xlsx del servidor?')">
+      <div class="hub-icono">📊</div>
+      <div><h3>Cargar estándares desde Excel</h3><p>Importa tiempos estándar desde el archivo del servidor.</p></div>
+    </a>
+    <form action="/admin_tools/reset_metricas" method="POST" onsubmit="return confirmarEscribiendo('REINICIAR', 'Esto pone en cero el avance de todas las órdenes.')">
+      <input type="hidden" name="csrf_token" value="{{ request.session.csrf_token }}">
+      <button type="submit" class="hub-card peligro">
+        <div class="hub-icono">🔄</div>
+        <div><h3>Reiniciar avance de órdenes</h3><p>Pone en cero el avance y el estado de las órdenes. Para empezar un ciclo nuevo.</p></div>
+      </button>
+    </form>
+    <form action="/admin_tools/borrar_registros" method="POST" onsubmit="return confirmarEscribiendo('BORRAR', 'Se borran TODOS los registros de producción. No se puede deshacer.')">
+      <input type="hidden" name="csrf_token" value="{{ request.session.csrf_token }}">
+      <button type="submit" class="hub-card peligro">
+        <div class="hub-icono">🗑️</div>
+        <div><h3>Borrar todos los registros</h3><p>Elimina todo el historial de producción. No se puede deshacer.</p></div>
+      </button>
+    </form>
+  </div>
+</details>
+
+<script>
+function confirmarEscribiendo(palabra, aviso) {
+  const r = prompt(aviso + "\n\nPara confirmar, escribe " + palabra + ":");
+  return r !== null && r.trim().toUpperCase() === palabra;
+}
+async function lanzarBackup() {
+  const btn = document.getElementById("btn-backup");
+  const txt = document.getElementById("backup-texto");
+  const original = txt.textContent;
+  btn.disabled = true;
+  txt.textContent = "Haciendo la copia… puede tardar un minuto.";
+  try {
+    const res = await fetch("/admin_tools/backup_manual", { method: "POST" });
+    const data = await res.json();
+    alert(data.estado === "ok" ? "✅ Copia hecha: " + data.archivo : "❌ No se pudo: " + data.mensaje);
+  } catch (e) {
+    alert("❌ No se pudo conectar con el servidor.");
+  } finally {
+    btn.disabled = false;
+    txt.textContent = original;
+  }
+}
+</script>
+{% endblock %}

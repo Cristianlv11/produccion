@@ -9,6 +9,7 @@ from openpyxl.styles import Font, PatternFill, Alignment
 from database import db, sincronizar_actividades_ordenes_abiertas
 from auth import require_admin
 from routers.configuracion import sincronizar_secuencia, texto_obligatorio, entero_obligatorio
+from costos import costos_desde_unidades_hora, guardar_parametros, leer_parametros, recalcular_todos
 
 router = APIRouter()
 
@@ -64,28 +65,25 @@ def texto_corto(valor, maximo=120):
 
 
 def guardar_estandar(cursor, actividad_id: int, minutos: float, costo_mo_unidad=None):
+    """Guarda los minutos por unidad. El costo de mano de obra se calcula solo con el
+    salario configurado (costo_mo_unidad se ignora; se deja el parámetro por compatibilidad)."""
     unidades_por_hora = 60.0 / minutos
+    costo_unidad, costo_hora = costos_desde_unidades_hora(cursor, unidades_por_hora)
     cursor.execute("SELECT id FROM estandares_actividad WHERE actividad_id = %s ORDER BY id LIMIT 1", (actividad_id,))
     row = cursor.fetchone()
     if row:
-        if costo_mo_unidad is None:
-            cursor.execute(
-                "UPDATE estandares_actividad SET unidades_por_hora = %s WHERE id = %s",
-                (unidades_por_hora, row[0]),
-            )
-        else:
-            cursor.execute(
-                "UPDATE estandares_actividad SET unidades_por_hora = %s, costo_mo_unidad = %s WHERE id = %s",
-                (unidades_por_hora, costo_mo_unidad, row[0]),
-            )
+        cursor.execute(
+            "UPDATE estandares_actividad SET unidades_por_hora = %s, costo_mo_unidad = %s, costo_mo_hora = %s WHERE id = %s",
+            (unidades_por_hora, costo_unidad, costo_hora, row[0]),
+        )
         return row[0]
     sincronizar_secuencia(cursor, "estandares_actividad")
     cursor.execute(
         """
         INSERT INTO estandares_actividad (actividad_id, unidades_por_hora, costo_mo_unidad, costo_mo_hora)
-        VALUES (%s, %s, %s, 0) RETURNING id
+        VALUES (%s, %s, %s, %s) RETURNING id
         """,
-        (actividad_id, unidades_por_hora, costo_mo_unidad or 0),
+        (actividad_id, unidades_por_hora, costo_unidad, costo_hora),
     )
     return cursor.fetchone()[0]
 
@@ -179,6 +177,70 @@ def datos_tiempos(request: Request, maquina_id: int = 0):
             "procesos": procesos, "jornada_min": JORNADA_MIN}
 
 
+@router.post("/config/tiempos/producto")
+def crear_producto(data: dict, request: Request):
+    """Producto nuevo (en la base se llama «máquina»), p. ej. «Horno para plátano»."""
+    if not require_admin(request):
+        return no_autorizado()
+    nombre = texto_obligatorio(data, "nombre", "Nombre del producto")
+    conn = db()
+    c = conn.cursor()
+    try:
+        c.execute("SELECT id FROM maquinas WHERE lower(trim(nombre)) = lower(trim(%s))", (nombre,))
+        if c.fetchone():
+            raise HTTPException(status_code=400, detail="Ya existe un producto con ese nombre")
+        sincronizar_secuencia(c, "maquinas")
+        c.execute("INSERT INTO maquinas (nombre) VALUES (%s) RETURNING id", (nombre,))
+        maquina_id = c.fetchone()[0]
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return {"ok": True, "id": maquina_id}
+
+
+@router.get("/config/costo_mano_obra")
+def ver_costo_mano_obra(request: Request):
+    if not require_admin(request):
+        return no_autorizado()
+    conn = db()
+    c = conn.cursor()
+    try:
+        datos = leer_parametros(c)
+        conn.commit()
+    finally:
+        conn.close()
+    return datos
+
+
+@router.put("/config/costo_mano_obra")
+def editar_costo_mano_obra(data: dict, request: Request):
+    if not require_admin(request):
+        return no_autorizado()
+    try:
+        salario = float(str(data.get("salario_mensual")).replace(".", "").replace(",", "."))
+        horas = float(str(data.get("horas_mes")).replace(",", "."))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Escriba el salario y las horas como números")
+    if salario <= 0 or not (100 <= horas <= 300):
+        raise HTTPException(status_code=400, detail="Revise el salario y las horas al mes (entre 100 y 300)")
+    conn = db()
+    c = conn.cursor()
+    try:
+        guardar_parametros(c, salario, horas)
+        actualizadas = recalcular_todos(c)
+        datos = leer_parametros(c)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return {**datos, "actualizadas": actualizadas}
+
+
 @router.post("/config/tiempos/proceso")
 def crear_proceso(data: dict, request: Request):
     if not require_admin(request):
@@ -240,7 +302,6 @@ def crear_actividad(data: dict, request: Request):
     proceso_id = entero_obligatorio(data, "proceso_id", "Proceso")
     nombre = texto_obligatorio(data, "nombre", "Nombre de la actividad")
     minutos = minutos_validos(data.get("min_unidad"))
-    costo = costo_valido(data.get("costo_mo_unidad"))
     conn = db()
     c = conn.cursor()
     try:
@@ -263,7 +324,7 @@ def crear_actividad(data: dict, request: Request):
             (proceso_id, nombre, texto_corto(data.get("herramienta")), operario_id),
         )
         actividad_id = c.fetchone()[0]
-        guardar_estandar(c, actividad_id, minutos, costo)
+        guardar_estandar(c, actividad_id, minutos)
         ordenes = sincronizar_actividades_ordenes_abiertas(c)
         conn.commit()
     except Exception:
@@ -295,17 +356,8 @@ def editar_actividad(actividad_id: int, data: dict, request: Request):
                       (operario_valido(c, data.get("operario_id")), actividad_id))
         if "activo" in data:
             c.execute("UPDATE actividades SET activo = %s WHERE id = %s", (bool(data["activo"]), actividad_id))
-        if "min_unidad" in data or "costo_mo_unidad" in data:
-            minutos = minutos_validos(data.get("min_unidad"), obligatorio=False)
-            costo = costo_valido(data["costo_mo_unidad"]) if "costo_mo_unidad" in data else None
-            if minutos is None:
-                c.execute("SELECT unidades_por_hora FROM estandares_actividad WHERE actividad_id = %s ORDER BY id LIMIT 1",
-                          (actividad_id,))
-                row = c.fetchone()
-                if not row or not row[0]:
-                    raise HTTPException(status_code=400, detail="Primero ingrese los minutos por unidad")
-                minutos = 60.0 / float(row[0])
-            guardar_estandar(c, actividad_id, minutos, costo)
+        if "min_unidad" in data:
+            guardar_estandar(c, actividad_id, minutos_validos(data.get("min_unidad")))
         conn.commit()
     except Exception:
         conn.rollback()

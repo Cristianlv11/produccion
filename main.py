@@ -19,14 +19,12 @@ from backup_db import ejecutar_backup_completo
 from routers.ordenes import router as ordenes_router
 from routers.usuarios import router as usuarios_router
 from routers.android import router as android_router, guardar_registro_android, usuario_android_habilitado
-from routers.metricas import router as metricas_router, metricas_semanales
+from routers.metricas import router as metricas_router
 from routers.bonos import router as bonos_router
 from routers.admin_tools import router as admin_tools_router
-from routers import planificador
 from routers import configuracion
 from routers.tiempos import router as tiempos_router
 from routers.cortes import router as cortes_router, asegurar_schema_cortes
-from routers import admin_panel
 from routers.tickets import router as tickets_router
 from routers.excel_ops import router as excel_ops_router
 from routers.inventario import router as inventario_router
@@ -195,8 +193,6 @@ app.include_router(tiempos_router)
 app.include_router(cortes_router)
 from routers.dashboard import router as dashboard_router
 app.include_router(dashboard_router)
-app.include_router(admin_panel.router)
-app.include_router(planificador.router)
 app.include_router(tickets_router)
 app.include_router(inventario_router)
 app.include_router(excel_ops_router)

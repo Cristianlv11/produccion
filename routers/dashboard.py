@@ -8,6 +8,9 @@ from limiter import limiter
 
 router = APIRouter()
 
+# El servidor está en UTC: "hoy" se calcula con la hora de Colombia
+HOY_SQL = "((NOW() AT TIME ZONE 'UTC') - INTERVAL '5 hours')::date"  # Colombia, UTC-5 sin horario de verano
+
 @router.get("/", response_class=HTMLResponse)
 def home(request: Request):
     if not require_admin(request):
@@ -17,18 +20,21 @@ def home(request: Request):
     
     # Determinar filtros de fecha (asumiendo PostgreSQL, casteamos el texto a timestamp)
     if rango == 'ayer':
-        date_filter = "inicio::timestamp >= CURRENT_DATE - INTERVAL '1 day' AND inicio::timestamp < CURRENT_DATE"
-        prev_date_filter = "inicio::timestamp >= CURRENT_DATE - INTERVAL '2 days' AND inicio::timestamp < CURRENT_DATE - INTERVAL '1 day'"
+        date_filter = "inicio::timestamp >= HOY_LOCAL - INTERVAL '1 day' AND inicio::timestamp < HOY_LOCAL"
+        prev_date_filter = "inicio::timestamp >= HOY_LOCAL - INTERVAL '2 days' AND inicio::timestamp < HOY_LOCAL - INTERVAL '1 day'"
     elif rango == '7dias':
-        date_filter = "inicio::timestamp >= CURRENT_DATE - INTERVAL '7 days'"
-        prev_date_filter = "inicio::timestamp >= CURRENT_DATE - INTERVAL '14 days' AND inicio::timestamp < CURRENT_DATE - INTERVAL '7 days'"
+        date_filter = "inicio::timestamp >= HOY_LOCAL - INTERVAL '7 days'"
+        prev_date_filter = "inicio::timestamp >= HOY_LOCAL - INTERVAL '14 days' AND inicio::timestamp < HOY_LOCAL - INTERVAL '7 days'"
     elif rango == 'mes':
-        date_filter = "inicio::timestamp >= DATE_TRUNC('month', CURRENT_DATE)"
-        prev_date_filter = "inicio::timestamp >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month') AND inicio::timestamp < DATE_TRUNC('month', CURRENT_DATE)"
+        date_filter = "inicio::timestamp >= DATE_TRUNC('month', HOY_LOCAL)"
+        prev_date_filter = "inicio::timestamp >= DATE_TRUNC('month', HOY_LOCAL - INTERVAL '1 month') AND inicio::timestamp < DATE_TRUNC('month', HOY_LOCAL)"
     else: # hoy
         rango = 'hoy'
-        date_filter = "inicio::timestamp >= CURRENT_DATE"
-        prev_date_filter = "inicio::timestamp >= CURRENT_DATE - INTERVAL '1 day' AND inicio::timestamp < CURRENT_DATE"
+        date_filter = "inicio::timestamp >= HOY_LOCAL"
+        prev_date_filter = "inicio::timestamp >= HOY_LOCAL - INTERVAL '1 day' AND inicio::timestamp < HOY_LOCAL"
+
+    date_filter = date_filter.replace("HOY_LOCAL", HOY_SQL)
+    prev_date_filter = prev_date_filter.replace("HOY_LOCAL", HOY_SQL)
 
     conn = db()
     c = conn.cursor()
@@ -72,14 +78,14 @@ def home(request: Request):
         avance_promedio = 0
 
     # 4. Tickets Abiertos (en lugar de Operarios Activos o como complemento)
-    c.execute("SELECT COUNT(*) FROM tickets WHERE estado != 'Cerrado'")
+    c.execute("SELECT COUNT(*) FROM tickets WHERE UPPER(estado) <> 'CERRADO'")
     tickets_abiertos = c.fetchone()[0] or 0
 
     # Gráfico: Últimos 7 días
     c.execute("""
         SELECT DATE(inicio::timestamp) as fecha, COALESCE(SUM(cantidad), 0)
         FROM registros_produccion 
-        WHERE inicio::timestamp >= CURRENT_DATE - INTERVAL '6 days'
+        WHERE inicio::timestamp >= """ + HOY_SQL + """ - INTERVAL '6 days'
         GROUP BY DATE(inicio::timestamp)
         ORDER BY fecha
     """)
@@ -106,7 +112,7 @@ def home(request: Request):
     c.execute("""
         SELECT id, titulo, prioridad 
         FROM tickets 
-        WHERE estado != 'Cerrado' 
+        WHERE UPPER(estado) <> 'CERRADO' 
         ORDER BY CASE WHEN prioridad = 'Alta' THEN 1 ELSE 2 END, id DESC 
         LIMIT 3
     """)
@@ -257,25 +263,6 @@ def panel(request: Request):
         "request": request,
         "maquinas": maquinas,
         "ordenes": ordenes
-    })
-
-
-# ================= METRICAS OPERARIOS =================
-
-@router.get("/metricas_operarios", response_class=HTMLResponse)
-def metricas_operarios(request: Request):
-
-    conn = db()
-    c = conn.cursor()
-
-    semanas = metricas_semanales(c)
-
-    conn.close()
-
-    return request.app.state.templates.TemplateResponse(
-        request=request, name="Metricas.html", context={
-        "request": request,
-        "semanas": semanas
     })
 
 

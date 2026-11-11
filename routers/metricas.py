@@ -10,6 +10,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from database import db
+from routers.cortes import cortes_activos, hoy as hoy_local, TZ
 
 router = APIRouter()
 
@@ -25,7 +26,7 @@ def _fecha_corta(fecha):
 
 
 def _parsear_fecha_periodo(periodo, fecha):
-    hoy = date.today()
+    hoy = hoy_local()
 
     if periodo not in ("diario", "semanal", "mensual"):
         raise HTTPException(status_code=400, detail="Periodo no valido")
@@ -95,137 +96,153 @@ def _aplicar_estilo_tabla(sheet):
     _ajustar_columnas(sheet)
 
 
-def _asegurar_semana(semanas, semana_inicio):
-    semana_inicio = _normalizar_fecha(semana_inicio)
-    key = semana_inicio.isoformat()
-
-    if key not in semanas:
-        semana_fin = semana_inicio + timedelta(days=6)
-        semanas[key] = {
-            "inicio": semana_inicio.isoformat(),
-            "fin": semana_fin.isoformat(),
-            "etiqueta": f"{_fecha_corta(semana_inicio)} - {_fecha_corta(semana_fin)}",
-            "total": {
-                "unidades": 0,
-                "segundos": 0,
-                "segundos_estandar": 0,
-                "horas": 0,
-                "productividad": 0,
-                "eficiencia": 0,
-                "operaciones": 0,
-            },
-            "operarios": [],
-            "detalle": [],
-        }
-
-    return semanas[key]
+NOMBRES_DIA = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
 
 
-def metricas_semanales(cursor):
+def lunes_de(dia):
+    return dia - timedelta(days=dia.weekday())
+
+
+def minutos_jornada(cursor):
+    """Minutos de trabajo de un día según el horario de pasadas (sin descansos)."""
+    try:
+        total = sum(c["minutos_tramo"] for c in cortes_activos(cursor))
+    except Exception:
+        total = 0
+    return total or 480
+
+
+def semanas_con_datos(cursor):
     cursor.execute("""
-        SELECT
-            DATE_TRUNC('week', r.inicio::timestamp)::date AS semana_inicio,
-            op.nombre,
-            COALESCE(SUM(r.cantidad), 0) AS unidades,
-            COALESCE(SUM(EXTRACT(EPOCH FROM (r.fin::timestamp - r.inicio::timestamp))), 0) AS segundos,
-            COUNT(r.id) AS operaciones,
-            COALESCE(SUM(CASE WHEN e.unidades_por_hora > 0 THEN (r.cantidad::numeric / e.unidades_por_hora::numeric) * 3600 ELSE 0 END), 0) AS segundos_estandar
+        SELECT DISTINCT DATE_TRUNC('week', inicio::timestamp)::date AS semana
+        FROM registros_produccion
+        ORDER BY semana DESC
+        LIMIT 60
+    """)
+    return [_normalizar_fecha(r[0]) for r in cursor.fetchall()]
+
+
+def _pct(parte, total):
+    return round(parte / total * 100, 1) if total else None
+
+
+def metricas_semana(cursor, lunes):
+    """Métricas de una semana (lunes a domingo).
+
+    - Horas: tiempo real de cada registro (fin - inicio).
+    - Eficiencia: horas estándar / horas reales, solo sobre actividades que tienen
+      tiempo estándar (las demás no se cuentan, para no bajarla injustamente).
+    - Tiempo registrado: horas registradas / horas disponibles de los días que el operario trabajó
+      (la jornada sale del horario de pasadas, sin descansos).
+    """
+    inicio = datetime.combine(lunes, time.min)
+    fin = inicio + timedelta(days=7)
+    cursor.execute("""
+        SELECT r.id, op.id, op.nombre, a.nombre, COALESCE(m.nombre, ''), r.cantidad,
+               r.inicio::timestamp, r.fin::timestamp, e.unidades_por_hora,
+               COALESCE(r.observacion, ''), COALESCE(ch.nombre, ''), r.orden_id
         FROM registros_produccion r
         JOIN operarios op ON op.id = r.operario_id
         JOIN actividades a ON a.id = r.actividad_id
-        LEFT JOIN estandares_actividad e ON e.actividad_id = a.id
-        GROUP BY DATE_TRUNC('week', r.inicio::timestamp)::date, op.id, op.nombre
-        ORDER BY semana_inicio DESC, unidades DESC, op.nombre
-    """)
+        LEFT JOIN LATERAL (
+            SELECT unidades_por_hora FROM estandares_actividad
+            WHERE actividad_id = a.id ORDER BY id LIMIT 1
+        ) e ON TRUE
+        LEFT JOIN ordenes o ON o.id = r.orden_id
+        LEFT JOIN maquinas m ON m.id = o.maquina_id
+        LEFT JOIN cortes_horario ch ON ch.id = r.corte_id
+        WHERE r.inicio::timestamp >= %s AND r.inicio::timestamp < %s
+        ORDER BY r.inicio::timestamp, r.id
+    """, (inicio, fin))
+    filas = cursor.fetchall()
+    jornada_h = minutos_jornada(cursor) / 60
 
-    resumen = cursor.fetchall()
-    semanas = OrderedDict()
-    operarios_por_semana = {}
+    def acumulador():
+        return {"unidades": 0, "horas": 0.0, "horas_con_std": 0.0, "horas_std": 0.0, "registros": 0}
 
-    for semana_inicio, nombre, unidades, segundos, operaciones, segundos_estandar in resumen:
-        semana = _asegurar_semana(semanas, semana_inicio)
-        segundos = float(segundos or 0)
-        segundos_estandar = float(segundos_estandar or 0)
-        unidades = int(unidades or 0)
-        operaciones = int(operaciones or 0)
-        horas = round(segundos / 3600, 2) if segundos else 0
-        horas_estandar = round(segundos_estandar / 3600, 2) if segundos_estandar else 0
-        productividad = round(unidades / horas, 2) if horas else 0
-        eficiencia = round((horas_estandar / horas) * 100, 1) if horas else 0
-        utilizacion = round((horas / 48) * 100, 1)
+    def sumar(acc, cantidad, horas, h_std):
+        acc["unidades"] += cantidad
+        acc["horas"] += horas
+        acc["registros"] += 1
+        if h_std is not None:
+            acc["horas_con_std"] += horas
+            acc["horas_std"] += h_std
 
-        operario_data = {
-            "nombre": nombre,
-            "unidades": unidades,
-            "horas": horas,
-            "eficiencia": eficiencia,
-            "utilizacion": utilizacion,
-            "productividad": productividad,
-            "operaciones": operaciones,
-            "registros": [],
-        }
+    total = acumulador()
+    dias = OrderedDict((lunes + timedelta(days=i), acumulador()) for i in range(7))
+    operarios, actividades = {}, {}
+    sin_estandar = set()
 
-        semana["operarios"].append(operario_data)
-        operarios_por_semana[(semana["inicio"], nombre)] = operario_data
+    for (rid, op_id, op_nombre, actividad, maquina, cantidad, ini, fin_r, uph,
+         observacion, pasada, orden_id) in filas:
+        cantidad = int(cantidad or 0)
+        horas = max((fin_r - ini).total_seconds() / 3600, 0) if ini and fin_r else 0
+        h_std = cantidad / float(uph) if uph and float(uph) > 0 else None
+        if h_std is None:
+            sin_estandar.add(actividad)
+        sumar(total, cantidad, horas, h_std)
+        sumar(dias[ini.date()], cantidad, horas, h_std)
 
-        semana["total"]["unidades"] += unidades
-        semana["total"]["segundos"] += segundos
-        semana["total"]["segundos_estandar"] += segundos_estandar
-        semana["total"]["operaciones"] += operaciones
-
-    cursor.execute("""
-        SELECT
-            DATE_TRUNC('week', r.inicio::timestamp)::date AS semana_inicio,
-            op.nombre,
-            a.nombre,
-            r.cantidad,
-            r.inicio,
-            r.fin,
-            ROUND((EXTRACT(EPOCH FROM (r.fin::timestamp - r.inicio::timestamp)) / 3600.0)::numeric, 2) AS horas,
-            CASE WHEN e.unidades_por_hora > 0 THEN ROUND((r.cantidad::numeric / e.unidades_por_hora::numeric), 2) ELSE 0 END AS horas_estandar
-        FROM registros_produccion r
-        JOIN operarios op ON op.id = r.operario_id
-        JOIN actividades a ON a.id = r.actividad_id
-        LEFT JOIN estandares_actividad e ON e.actividad_id = a.id
-        ORDER BY semana_inicio DESC, r.inicio::timestamp DESC, r.id DESC
-    """)
-
-    detalle = cursor.fetchall()
-
-    for semana_inicio, operario, actividad, cantidad, inicio, fin, horas, horas_estandar in detalle:
-        semana = _asegurar_semana(semanas, semana_inicio)
-        horas = float(horas or 0)
-        horas_estandar = float(horas_estandar or 0)
-        
-        registro = {
-            "operario": operario,
+        op = operarios.setdefault(op_id, {"nombre": op_nombre, "dias": set(), "detalle": [], **acumulador()})
+        sumar(op, cantidad, horas, h_std)
+        op["dias"].add(ini.date())
+        op["detalle"].append({
+            "dia": f"{NOMBRES_DIA[ini.weekday()]} {ini:%d/%m}",
+            "hora": f"{ini:%H:%M}–{fin_r:%H:%M}",
+            "pasada": pasada,
             "actividad": actividad,
+            "maquina": maquina,
+            "orden_id": orden_id,
             "cantidad": cantidad,
-            "inicio": inicio.isoformat() if hasattr(inicio, 'isoformat') else inicio,
-            "fin": fin.isoformat() if hasattr(fin, 'isoformat') else fin,
-            "horas": horas,
-            "eficiencia": round((horas_estandar / horas) * 100, 1) if horas > 0 else 0
-        }
+            "horas": round(horas, 2),
+            "eficiencia": _pct(h_std, horas) if h_std is not None else None,
+            "observacion": observacion,
+        })
 
-        semana["detalle"].append(registro)
+        act = actividades.setdefault(actividad, {"nombre": actividad, "maquina": maquina, **acumulador()})
+        sumar(act, cantidad, horas, h_std)
 
-        operario_data = operarios_por_semana.get((semana["inicio"], operario))
-        if operario_data:
-            operario_data["registros"].append(registro)
+    def cerrar(acc, disponibles=None):
+        acc["horas"] = round(acc["horas"], 1)
+        acc["eficiencia"] = _pct(acc["horas_std"], acc["horas_con_std"])
+        acc["cobertura"] = _pct(acc["horas_con_std"], acc["horas"])
+        acc["productividad"] = round(acc["unidades"] / acc["horas"], 2) if acc["horas"] else 0
+        if disponibles is not None:
+            acc["disponibles"] = round(disponibles, 1)
+            acc["registrado"] = _pct(acc["horas"], disponibles)
+        return acc
 
-    for semana in semanas.values():
-        segundos = semana["total"]["segundos"]
-        segundos_estandar = semana["total"]["segundos_estandar"]
-        horas = round(segundos / 3600, 2) if segundos else 0
-        horas_estandar = round(segundos_estandar / 3600, 2) if segundos_estandar else 0
-        
-        semana["total"]["horas"] = horas
-        semana["total"]["eficiencia"] = round((horas_estandar / horas) * 100, 1) if horas else 0
-        semana["total"]["productividad"] = (
-            round(semana["total"]["unidades"] / horas, 2) if horas else 0
-        )
+    lista_ops = []
+    disponibles_total = 0
+    for op in operarios.values():
+        disp = len(op["dias"]) * jornada_h
+        disponibles_total += disp
+        op["dias_trabajados"] = len(op.pop("dias"))
+        lista_ops.append(cerrar(op, disp))
+    lista_ops.sort(key=lambda o: (-o["horas"], o["nombre"]))
 
-    return list(semanas.values())
+    serie = []
+    for i, (dia, acc) in enumerate(dias.items()):
+        if i >= 5 and not acc["registros"]:
+            continue  # fin de semana sin trabajo: no se muestra
+        cerrar(acc)
+        serie.append({"etiqueta": f"{NOMBRES_DIA[i]} {dia:%d/%m}", **acc})
+
+    lista_act = sorted(actividades.values(), key=lambda a: -a["horas"])
+    for a in lista_act:
+        cerrar(a)
+
+    return {
+        "lunes": lunes,
+        "domingo": lunes + timedelta(days=6),
+        "etiqueta": f"{_fecha_corta(lunes)} – {_fecha_corta(lunes + timedelta(days=6))}",
+        "total": cerrar(total, disponibles_total),
+        "dias": serie,
+        "operarios": lista_ops,
+        "actividades": lista_act[:10],
+        "sin_estandar": sorted(sin_estandar),
+        "jornada_h": round(jornada_h, 1),
+    }
 
 
 def _horas_productividad(segundos, unidades):
@@ -302,11 +319,17 @@ def _crear_excel_metricas(cursor, filtro):
             r.inicio,
             r.fin,
             ROUND((EXTRACT(EPOCH FROM (r.fin::timestamp - r.inicio::timestamp)) / 3600.0)::numeric, 2) AS horas,
-            CASE WHEN e.unidades_por_hora > 0 THEN ROUND((r.cantidad::numeric / e.unidades_por_hora::numeric), 2) ELSE 0 END AS horas_estandar
+            CASE WHEN e.unidades_por_hora > 0 THEN ROUND((r.cantidad::numeric / e.unidades_por_hora::numeric), 2) END AS horas_estandar,
+            COALESCE(ch.nombre, '') AS pasada,
+            COALESCE(r.observacion, '') AS observacion
         FROM registros_produccion r
         JOIN operarios op ON op.id = r.operario_id
         JOIN actividades a ON a.id = r.actividad_id
-        LEFT JOIN estandares_actividad e ON e.actividad_id = a.id
+        LEFT JOIN LATERAL (
+            SELECT unidades_por_hora FROM estandares_actividad
+            WHERE actividad_id = a.id ORDER BY id LIMIT 1
+        ) e ON TRUE
+        LEFT JOIN cortes_horario ch ON ch.id = r.corte_id
         LEFT JOIN procesos p ON p.id = a.proceso_id
         LEFT JOIN ordenes o ON o.id = r.orden_id
         LEFT JOIN maquinas m ON m.id = o.maquina_id
@@ -355,29 +378,19 @@ def _crear_excel_metricas(cursor, filtro):
     ws_detalle = wb.create_sheet("Registros")
     _agregar_fila(
         ws_detalle,
-        ["ID", "Fecha", "Operario", "Maquina", "Orden", "Proceso", "Actividad", "Cantidad", "Inicio", "Fin", "Horas", "Unid/Hora", "Eficiencia %"],
+        ["ID", "Fecha", "Pasada", "Operario", "Maquina", "Orden", "Proceso", "Actividad", "Cantidad", "Inicio", "Fin", "Horas", "Unid/Hora", "Eficiencia %", "Observacion"],
         bold=True,
     )
-    for registro_id, fecha, operario, maquina, orden_id, proceso, actividad, cantidad, inicio_reg, fin_reg, horas, horas_estandar in registros:
+    for (registro_id, fecha, operario, maquina, orden_id, proceso, actividad, cantidad, inicio_reg, fin_reg,
+         horas, horas_estandar, pasada, observacion) in registros:
         horas = float(horas or 0)
-        horas_estandar = float(horas_estandar or 0)
         cantidad = int(cantidad or 0)
         productividad = round(cantidad / horas, 2) if horas else 0
-        eficiencia = round((horas_estandar / horas) * 100, 1) if horas > 0 else 0
+        # Sin tiempo estándar la eficiencia queda vacía (no es 0 %)
+        eficiencia = round((float(horas_estandar) / horas) * 100, 1) if horas_estandar is not None and horas > 0 else ""
         ws_detalle.append([
-            registro_id,
-            fecha,
-            operario,
-            maquina,
-            orden_id,
-            proceso,
-            actividad,
-            cantidad,
-            inicio_reg,
-            fin_reg,
-            horas,
-            productividad,
-            eficiencia,
+            registro_id, fecha, pasada, operario, maquina, orden_id, proceso, actividad, cantidad,
+            inicio_reg, fin_reg, horas, productividad, eficiencia, observacion,
         ])
 
     for sheet in wb.worksheets:
@@ -405,63 +418,50 @@ def _crear_excel_metricas(cursor, filtro):
 
 
 @router.get("/metricas_operarios", response_class=HTMLResponse)
-def metricas_operarios(request: Request):
-    if not request.session.get("role") == "admin":
-        return RedirectResponse("/admin", 303)
-
-    conn = db()
-    c = conn.cursor()
-    semanas = metricas_semanales(c)
-    conn.close()
-
-    return request.app.state.templates.TemplateResponse(
-        request=request,
-        name="Metricas.html",
-        context={
-            "request": request,
-            "semanas": semanas,
-        },
-    )
-
-
-@router.get("/informes_gerenciales", response_class=HTMLResponse)
-def informes_gerenciales(request: Request):
-    if not request.session.get("role") == "admin":
-        return RedirectResponse("/admin", 303)
-
-    conn = db()
-    c = conn.cursor()
-    semanas = metricas_semanales(c)
-    conn.close()
-
-    return request.app.state.templates.TemplateResponse(
-        request=request,
-        name="Informes.html",
-        context={
-            "request": request,
-            "semanas": semanas,
-        },
-    )
-
-
 @router.get("/metricas", response_class=HTMLResponse)
-def metricas(request: Request):
+def metricas_operarios(request: Request, semana: str = None):
     if not request.session.get("role") == "admin":
         return RedirectResponse("/admin", 303)
 
+    actual = lunes_de(hoy_local())
+    try:
+        lunes = lunes_de(datetime.strptime(semana[:10], "%Y-%m-%d").date()) if semana else actual
+    except ValueError:
+        lunes = actual
+
     conn = db()
     c = conn.cursor()
-    semanas = metricas_semanales(c)
+    datos = metricas_semana(c, lunes)
+    semanas = semanas_con_datos(c)
     conn.close()
+
+    if actual not in semanas:
+        semanas.insert(0, actual)
+    if lunes not in semanas:
+        semanas.append(lunes)
+        semanas.sort(reverse=True)
+    ultima_con_datos = next((s for s in semanas if s != lunes and s <= actual), None)
 
     return request.app.state.templates.TemplateResponse(
         request=request,
         name="Metricas.html",
         context={
             "request": request,
-            "semanas": semanas,
+            "m": datos,
+            "semanas": [{"valor": s.isoformat(), "etiqueta": f"{_fecha_corta(s)} – {_fecha_corta(s + timedelta(days=6))}"} for s in semanas],
+            "semana_actual": actual.isoformat(),
+            "anterior": (lunes - timedelta(days=7)).isoformat(),
+            "siguiente": (lunes + timedelta(days=7)).isoformat() if lunes < actual else None,
+            "ultima_con_datos": ultima_con_datos.isoformat() if ultima_con_datos else None,
+            "hoy": hoy_local().isoformat(),
         },
     )
+
+
+@router.get("/informes_gerenciales")
+def informes_gerenciales(request: Request):
+    # Los informes quedaron dentro de Métricas
+    return RedirectResponse("/metricas_operarios", 303)
 
 
 @router.get("/metricas/exportar_excel")
@@ -566,8 +566,7 @@ def wip_cuellos_botella(request: Request):
         GROUP BY o.id, m.nombre, o.cantidad, o.estado, la.ultimo_movimiento, a_cuello.nombre
     """)
     
-    from datetime import datetime
-    ahora = datetime.now()
+    ahora = datetime.now(TZ).replace(tzinfo=None)
     
     ordenes_activas = []
     wip_total_unidades = 0

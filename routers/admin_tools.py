@@ -13,12 +13,8 @@ router = APIRouter()
 @router.get("/admin_tools", response_class=HTMLResponse)
 def admin_tools_panel(request: Request):
 
-    if request.session.get("role") != "admin":
-        return RedirectResponse("/admin", 303)
-
-    return request.app.state.templates.TemplateResponse(
-        request=request, name="admin_tools_panel.html", context={"request": request}
-    )
+    # Las herramientas quedaron dentro de Configuración
+    return RedirectResponse("/configuracion", 303)
 
 
 # ================= RESET METRICAS =================
@@ -40,7 +36,7 @@ def reset_metricas(request: Request):
     conn.commit()
     conn.close()
 
-    return RedirectResponse("/admin_tools", 303)
+    return RedirectResponse("/configuracion", 303)
 
 
 # ================= BORRAR REGISTROS =================
@@ -59,7 +55,7 @@ def borrar_registros(request: Request):
     conn.commit()
     conn.close()
 
-    return RedirectResponse("/admin_tools", 303)
+    return RedirectResponse("/configuracion", 303)
 
 
 # ================= CARGAR ESTANDARES =================
@@ -93,7 +89,7 @@ def cargar_estandares_excel(request: Request):
     conn.commit()
     conn.close()
 
-    return RedirectResponse("/admin_tools", 303)
+    return RedirectResponse("/configuracion", 303)
 
 @router.post("/maquinas")
 def crear_maquina(nombre: str):

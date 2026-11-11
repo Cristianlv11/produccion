@@ -22,14 +22,15 @@ button { padding: 8px 12px; margin-right: 5px; border-radius: 6px; border: none;
 .add-btn { background: var(--success); color: white; }
 </style>
 
-<h1>Asistente de Nuevos Flujos</h1>
+<a class="volver" href="/configuracion">&larr; Configuración</a>
+<h1>Asistente rápido</h1>
 <p>Herramienta rápida para inicializar la producción asociando máquinas, procesos y actividades.</p>
 
 <div class="notice">
 <strong>Tiempos por producto</strong>
 Para editar actividades, minutos por unidad, costos y responsables de cada producto en una sola tabla, usa <a href="/configuracion/tiempos"><b>Tiempos por producto</b></a>.
 Para el horario en que la supervisora registra por cortes, usa <a href="/configuracion/cortes"><b>Horario de cortes</b></a>.
-Para máquinas y operarios, dirígete al <b>Panel de Herramientas > Editar Catálogos</b>.
+Para máquinas y operarios, usa <a href="/admin_tools/editar_catalogos"><b>Operarios y productos</b></a>.
 </div>
 
 <div id="quickStatus" class="quick-status"></div>
@@ -48,14 +49,8 @@ Para máquinas y operarios, dirígete al <b>Panel de Herramientas > Editar Catá
       <label class="field field-wide">Primera actividad (opcional)
         <input id="procesoActividad" placeholder="Ej: Revisar componentes">
       </label>
-      <label class="field">Unidades por hora
-        <input id="procesoUnidades" type="number" min="0" step="0.01" placeholder="Std/h">
-      </label>
-      <label class="field">Costo MO unidad
-        <input id="procesoCostoUnidad" type="number" min="0" step="0.01" placeholder="0">
-      </label>
-      <label class="field">Costo MO hora
-        <input id="procesoCostoHora" type="number" min="0" step="0.01" placeholder="0">
+      <label class="field field-wide">Minutos por unidad (cuánto tarda en hacer una)
+        <input id="procesoUnidades" type="number" min="0" step="0.1" placeholder="Ej: 15">
       </label>
     </div>
     <div class="quick-actions">
@@ -76,14 +71,8 @@ Para máquinas y operarios, dirígete al <b>Panel de Herramientas > Editar Catá
       <label class="field field-wide">Nombre de la actividad
         <input id="actividadNombre" placeholder="Ej: Pulido final">
       </label>
-      <label class="field">Unidades por hora
-        <input id="actividadUnidades" type="number" min="0" step="0.01" placeholder="Std/h">
-      </label>
-      <label class="field">Costo MO unidad
-        <input id="actividadCostoUnidad" type="number" min="0" step="0.01" placeholder="0">
-      </label>
-      <label class="field">Costo MO hora
-        <input id="actividadCostoHora" type="number" min="0" step="0.01" placeholder="0">
+      <label class="field field-wide">Minutos por unidad (cuánto tarda en hacer una)
+        <input id="actividadUnidades" type="number" min="0" step="0.1" placeholder="Ej: 15">
       </label>
     </div>
     <div class="quick-actions">
@@ -191,24 +180,20 @@ async function crearProcesoRapido(){
 
     if(!maquinaId) return setQuickStatus("Seleccione una máquina.", "error");
     if(!nombreProceso) return setQuickStatus("Escriba el nombre del proceso.", "error");
-    if(actividadInicial && !unidadesIniciales) return setQuickStatus("Indique unidades por hora.", "error");
+    if(actividadInicial && !unidadesIniciales) return setQuickStatus("Indique los minutos por unidad.", "error");
 
     setQuickStatus("Guardando proceso...", "");
     const payload = {
       maquina_id: maquinaId,
       nombre: nombreProceso,
       actividad_nombre: actividadInicial,
-      unidades_por_hora: document.getElementById("procesoUnidades").value,
-      costo_mo_unidad: document.getElementById("procesoCostoUnidad").value,
-      costo_mo_hora: document.getElementById("procesoCostoHora").value
+      minutos_unidad: document.getElementById("procesoUnidades").value
     };
 
     const data = await postJson("/config/asistente/proceso", payload);
     document.getElementById("procesoNombre").value = "";
     document.getElementById("procesoActividad").value = "";
     document.getElementById("procesoUnidades").value = "";
-    document.getElementById("procesoCostoUnidad").value = "";
-    document.getElementById("procesoCostoHora").value = "";
     await cargarCatalogosRapidos();
     setQuickStatus("Proceso creado. Actividades agregadas a órdenes abiertas: " + data.ordenes_actualizadas, "ok");
   }catch(error){
@@ -226,22 +211,18 @@ async function crearActividadRapida(){
     if(!maquinaId) return setQuickStatus("Seleccione una máquina.", "error");
     if(!procesoId) return setQuickStatus("Seleccione un proceso.", "error");
     if(!nombreActividad) return setQuickStatus("Escriba el nombre de la actividad.", "error");
-    if(!unidadesActividad) return setQuickStatus("Indique unidades por hora.", "error");
+    if(!unidadesActividad) return setQuickStatus("Indique los minutos por unidad.", "error");
 
     setQuickStatus("Guardando actividad...", "");
     const payload = {
       proceso_id: procesoId,
       nombre: nombreActividad,
-      unidades_por_hora: unidadesActividad,
-      costo_mo_unidad: document.getElementById("actividadCostoUnidad").value,
-      costo_mo_hora: document.getElementById("actividadCostoHora").value
+      minutos_unidad: unidadesActividad
     };
 
     const data = await postJson("/config/asistente/actividad", payload);
     document.getElementById("actividadNombre").value = "";
     document.getElementById("actividadUnidades").value = "";
-    document.getElementById("actividadCostoUnidad").value = "";
-    document.getElementById("actividadCostoHora").value = "";
     await cargarCatalogosRapidos();
     setQuickStatus("Actividad creada. Órdenes abiertas actualizadas: " + data.ordenes_actualizadas, "ok");
   }catch(error){

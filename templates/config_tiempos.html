@@ -52,22 +52,41 @@ tr.nueva td { background: #fafafa; }
   .col-act { justify-content: space-between; }
   table.tp input[type="checkbox"] { width: 22px; height: 22px; flex: 0 0 22px; }
 }
+.tp-costo { background: #fff; border: 1px solid var(--border-color); border-radius: 10px; padding: 10px 14px; margin-bottom: 14px; font-size: 14px; }
+.tp-costo summary { cursor: pointer; color: var(--text-muted); }
+.tp-costo p { color: var(--text-muted); margin: 8px 0; }
+.tp-costo-campos { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
+.tp-costo-campos label { display: flex; flex-direction: column; gap: 4px; font-weight: 600; font-size: 13px; }
+.tp-costo-campos input { height: 34px; width: 150px; padding: 0 8px; border: 1px solid var(--border-color); border-radius: 6px; font: inherit; }
+td.col-costo { color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .tp-sum[hidden], .tp-help[hidden], .tp-proc[hidden], tr[hidden] { display: none !important; }
 </style>
 
 <div class="tp-head">
   <div>
-    <h1>Tiempos por producto</h1>
-    <p>Actividades, minutos por unidad y costos de cada producto. Los cambios se guardan al salir de cada casilla.</p>
+    <a class="volver" href="/configuracion">&larr; Configuración</a>
+    <h1>Actividades y tiempos</h1>
+    <p>Elige el producto y escribe cuántos minutos toma cada actividad. El costo de mano de obra se calcula solo. Los cambios se guardan al salir de cada casilla.</p>
   </div>
   <div class="tp-tools">
     <select id="selProducto" aria-label="Producto"><option value="">Cargando productos...</option></select>
+    <button class="tp-btn primary" id="btnNuevoProducto">+ Producto nuevo</button>
     <button class="tp-btn" id="btnNuevoProceso" disabled>+ Proceso</button>
     <a class="tp-btn primary" id="btnExportar" href="#" aria-disabled="true">Exportar a Excel</a>
   </div>
 </div>
 
 <div id="tpStatus"></div>
+
+<details class="tp-costo" id="tpCosto">
+  <summary>Costo de mano de obra: <b id="costoHoraTxt">…</b> por hora</summary>
+  <p>Se calcula con el salario de un operario (salario mínimo) dividido entre las horas que trabaja al mes. Si cambia el salario, actualízalo aquí y se recalculan los costos de todas las actividades.</p>
+  <div class="tp-costo-campos">
+    <label>Salario mensual <input id="inpSalario" inputmode="numeric"></label>
+    <label>Horas de trabajo al mes <input id="inpHorasMes" inputmode="numeric"></label>
+    <button class="tp-btn primary" id="btnGuardarCosto">Guardar y recalcular</button>
+  </div>
+</details>
 
 <div id="tpResumen" class="tp-sum" hidden>
   <div class="tp-stat"><span>Tiempo de ciclo</span><strong id="sumCiclo">0</strong> min</div>
@@ -85,7 +104,7 @@ tr.nueva td { background: #fafafa; }
 <div id="tpLista"><div class="tp-empty">Seleccione un producto para ver sus actividades.</div></div>
 
 <script>
-const estado = { maquinas: [], operarios: [], maquina: null, procesos: [], jornada: 535, recienCreados: new Set() };
+const estado = { maquinas: [], operarios: [], maquina: null, procesos: [], jornada: 535, recienCreados: new Set(), costoHora: 0 };
 const $ = (id) => document.getElementById(id);
 
 function esc(t) {
@@ -122,7 +141,7 @@ function filaActividad(a) {
       <td class="col-nombre" data-label="Actividad"><input data-campo="nombre" value="${esc(a.nombre)}"></td>
       <td class="col-num" data-label="Min / unidad"><input data-campo="min_unidad" class="num ${a.min_unidad ? "" : "falta"}" inputmode="decimal" value="${a.min_unidad ?? ""}" placeholder="min"></td>
       <td class="col-real" data-label="Real (registros)"><span class="${alerta ? "alerta" : ""}">${real}</span></td>
-      <td class="col-num" data-label="Costo MO / und"><input data-campo="costo_mo_unidad" class="num" inputmode="decimal" value="${a.costo_mo_unidad || ""}" placeholder="$"></td>
+      <td class="col-num col-costo" data-label="Costo MO / und" data-costo>${a.costo_mo_unidad ? "$" + fmt(a.costo_mo_unidad, 0) : "—"}</td>
       <td data-label="Máquina / herramienta"><input data-campo="herramienta" value="${esc(a.herramienta)}" placeholder="Máquina / herramienta"></td>
       <td data-label="Responsable"><select data-campo="operario_id">${opcionesOperario(a.operario_id)}</select></td>
       <td class="col-act" data-label="Activa"><input type="checkbox" data-campo="activo" ${a.activo ? "checked" : ""} title="Activa"></td>
@@ -136,7 +155,7 @@ function filaNueva(procesoId) {
       <td class="col-nombre" data-label="Nueva actividad"><input data-nuevo="nombre" placeholder="+ Nueva actividad"></td>
       <td class="col-num" data-label="Min / unidad"><input data-nuevo="min_unidad" class="num" inputmode="decimal" placeholder="min"></td>
       <td class="col-real"></td>
-      <td class="col-num" data-label="Costo MO / und"><input data-nuevo="costo_mo_unidad" class="num" inputmode="decimal" placeholder="$"></td>
+      <td class="col-num col-costo" data-label="Costo MO / und">automático</td>
       <td data-label="Máquina / herramienta"><input data-nuevo="herramienta" placeholder="Máquina / herramienta"></td>
       <td data-label="Responsable"><select data-nuevo="operario_id">${opcionesOperario(null)}</select></td>
       <td class="col-act"><button class="tp-btn primary" data-agregar style="height:32px">Agregar</button></td>
@@ -229,7 +248,11 @@ async function guardarActividad(input) {
     await pedir(`/config/tiempos/actividad/${id}`, "PUT", { [campo]: valor });
     a[campo] = valor;
     if (campo === "activo") { tr.classList.toggle("inactivo", !valor); if (!valor && !$("chkInactivas").checked) tr.hidden = true; }
-    if (campo === "min_unidad") input.classList.remove("falta");
+    if (campo === "min_unidad") {
+      input.classList.remove("falta");
+      a.costo_mo_unidad = estado.costoHora * valor / 60;
+      tr.querySelector("[data-costo]").textContent = "$" + fmt(a.costo_mo_unidad, 0);
+    }
     celda.innerHTML = '<span class="ok">✓ Guardado</span>';
     setTimeout(() => { if (celda.textContent.includes("Guardado")) celda.innerHTML = ""; }, 2500);
     recalcular();
@@ -304,22 +327,57 @@ document.addEventListener("keydown", (ev) => {
   if (ev.key === "Enter" && ev.target.closest("tr.nueva")) { ev.preventDefault(); agregarActividad(ev.target.closest("tr").querySelector("[data-agregar]")); }
   else if (ev.key === "Enter" && ev.target.tagName === "INPUT") ev.target.blur();
 });
+async function nuevoProducto() {
+  const nombre = prompt("Nombre del producto nuevo (por ejemplo: Horno para plátano):");
+  if (!nombre || !nombre.trim()) return;
+  try {
+    const r = await pedir("/config/tiempos/producto", "POST", { nombre: nombre.trim() });
+    await cargarListaProductos(String(r.id));
+    aviso("Producto creado. Ahora toca «+ Proceso» para agregarle sus procesos y actividades.", "ok");
+  } catch (e) { aviso(e.message, "err"); }
+}
+
+async function cargarCosto() {
+  const c = await pedir("/config/costo_mano_obra");
+  estado.costoHora = c.costo_hora;
+  $("costoHoraTxt").textContent = "$" + fmt(c.costo_hora, 0);
+  $("inpSalario").value = fmt(c.salario_mensual, 0);
+  $("inpHorasMes").value = c.horas_mes;
+}
+
+async function guardarCosto() {
+  if (!confirm("Se van a recalcular los costos de mano de obra de TODAS las actividades con este salario. ¿Continuar?")) return;
+  try {
+    const r = await pedir("/config/costo_mano_obra", "PUT", { salario_mensual: $("inpSalario").value, horas_mes: $("inpHorasMes").value });
+    await cargarCosto();
+    if (estado.maquina) await cargarProducto(estado.maquina.id);
+    aviso("Listo: costo por hora $" + fmt(r.costo_hora, 0) + "; " + r.actualizadas + " actividades recalculadas.", "ok");
+  } catch (e) { aviso(e.message, "err"); }
+}
+
+$("btnNuevoProducto").addEventListener("click", nuevoProducto);
+$("btnGuardarCosto").addEventListener("click", guardarCosto);
 $("selProducto").addEventListener("change", (ev) => cargarProducto(ev.target.value).catch((e) => aviso(e.message, "err")));
 $("btnNuevoProceso").addEventListener("click", nuevoProceso);
 $("chkInactivas").addEventListener("change", pintar);
 $("inpOperarios").addEventListener("input", recalcular);
 $("btnExportar").addEventListener("click", (ev) => { if (!estado.maquina) ev.preventDefault(); });
 
+async function cargarListaProductos(elegir) {
+  const datos = await pedir("/config/tiempos?maquina_id=0");
+  estado.maquinas = datos.maquinas;
+  const sel = $("selProducto");
+  sel.innerHTML = '<option value="">Seleccione un producto…</option>' + datos.maquinas
+    .map((m) => `<option value="${m.id}">${esc(m.nombre)}${m.activo ? "" : " (inactivo)"}</option>`).join("");
+  let guardado = elegir || "";
+  if (!guardado) { try { guardado = localStorage.getItem("tp_producto") || ""; } catch (_) {} }
+  if (guardado && datos.maquinas.some((m) => String(m.id) === guardado)) { sel.value = guardado; await cargarProducto(guardado); }
+}
+
 (async () => {
   try {
-    const datos = await pedir("/config/tiempos?maquina_id=0");
-    estado.maquinas = datos.maquinas;
-    const sel = $("selProducto");
-    sel.innerHTML = '<option value="">Seleccione un producto…</option>' + datos.maquinas
-      .map((m) => `<option value="${m.id}">${esc(m.nombre)}${m.activo ? "" : " (inactivo)"}</option>`).join("");
-    let guardado = "";
-    try { guardado = localStorage.getItem("tp_producto") || ""; } catch (_) {}
-    if (guardado && datos.maquinas.some((m) => String(m.id) === guardado)) { sel.value = guardado; await cargarProducto(guardado); }
+    await cargarCosto();
+    await cargarListaProductos();
   } catch (e) { aviso(e.message, "err"); }
 })();
 </script>
