@@ -1,8 +1,8 @@
 {
-    "versionCode":  4,
-    "versionName":  "1.3",
-    "apk":  "produccionhmi-4.apk",
-    "sha256":  "77a75f41c24489f0bcd64a9c0337ed5a193431f9092f48613a7353c993ae2072",
-    "notes":  "Nuevo: registro por cortes para supervisión. Mejoras en las listas de orden y actividad.",
+    "versionCode":  5,
+    "versionName":  "1.4",
+    "apk":  "produccionhmi-5.apk",
+    "sha256":  "6fcd511575430e9fe769df8f65a6759f63f1b6dd285e0aede41d77586f2c4c33",
+    "notes":  "Diseño nuevo: registro por cortes más claro y rápido.",
     "forceUpdate":  false
 }
