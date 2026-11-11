@@ -23,12 +23,13 @@ TZ = ZoneInfo("America/Bogota")
 ROLES_SUPERVISION = ("admin", "supervisor")
 HORA_VALIDA = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 
-# Jornada de 535 min, la misma de las hojas de tiempos: 7:00 a 17:10 menos 75 min de descansos
+# Horario de planta: 6:00 a 15:50, desayuno 8:00-8:20 y almuerzo 12:00-13:00 = 510 min de trabajo
+# (la misma jornada de la hoja de balanceo del Excel)
 CORTES_INICIALES = [
-    ("Entrada", "07:00", 0),
-    ("Desayuno", "09:00", 15),
+    ("Entrada", "06:00", 0),
+    ("Desayuno", "08:00", 20),
     ("Almuerzo", "12:00", 60),
-    ("Salida", "17:10", 0),
+    ("Salida", "15:50", 0),
 ]
 
 
