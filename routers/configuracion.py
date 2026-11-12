@@ -499,8 +499,14 @@ def configuracion(request: Request):
         return RedirectResponse("/admin?next=configuracion", 303)
     if request.session.get("role") != "admin":
         return RedirectResponse("/", 303)
+    from routers.cortes import contar_por_clasificar
+    conn = db()
+    try:
+        pendientes = contar_por_clasificar(conn.cursor())
+    finally:
+        conn.close()
     return request.app.state.templates.TemplateResponse(
-        request=request, name="configuracion_hub.html", context={"request": request}
+        request=request, name="configuracion_hub.html", context={"request": request, "por_clasificar": pendientes}
     )
 
 

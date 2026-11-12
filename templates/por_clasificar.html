@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-title">
+  <div>
+    <a class="volver" href="/configuracion">&larr; Configuración</a>
+    <h1>Por clasificar</h1>
+    <p>Lo que se registró en la app sin saber a qué orden iba. Elige la orden y la actividad: queda como un registro normal de esa pasada y suma al avance de la orden.</p>
+  </div>
+</div>
+
+{% if not filas %}
+  <div class="vacio"><div class="vacio-icono">✅</div><h2>No hay nada por clasificar</h2><p>Todos los registros de la app tienen su orden.</p></div>
+{% else %}
+<div class="section" style="padding: 8px 8px 12px">
+  <p class="ayuda" style="margin: 8px 8px 12px">{{ filas|length }} registro{{ 's' if filas|length != 1 }} por clasificar. Mientras no se clasifiquen, su tiempo no entra en las métricas ni en los bonos.</p>
+  <div class="table-container" style="overflow-x:auto">
+    <table class="data-table" id="tablaClasificar">
+      <thead><tr><th>Operario</th><th>Cuándo</th><th>Qué estaba haciendo</th><th>Orden</th><th>Actividad</th><th class="num">Cant.</th><th></th></tr></thead>
+      <tbody>
+      {% for r in filas %}
+        <tr data-id="{{ r.id }}">
+          <td><b>{{ r.operario }}</b></td>
+          <td>{{ r.fecha }} · {{ r.pasada }}<br><small class="muted">{{ r.horas }} · {{ r.minutos }} min</small></td>
+          <td class="nota">{{ r.nota }}{% if r.por %}<br><small class="muted">por {{ r.por }}</small>{% endif %}</td>
+          <td>
+            <select class="selOrden">
+              <option value="">Elegir orden…</option>
+              {% for o in ordenes %}<option value="{{ o.id }}">{{ o.etiqueta }}</option>{% endfor %}
+            </select>
+          </td>
+          <td><select class="selActividad" disabled><option value="">Primero la orden</option></select></td>
+          <td class="num"><input class="cant" type="number" min="0" value="{{ r.cantidad }}" style="width:70px"></td>
+          <td style="white-space:nowrap">
+            <button class="btn btn-primary btnAsignar">Asignar</button>
+            <button class="btn btn-outline-danger btnBorrar" title="Borrar este registro">Borrar</button>
+            <div class="error-fila"></div>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="ayuda" style="margin: 12px 8px 0">¿No está la orden? Créala en <a href="/panel">Producción</a> y recarga esta página. ¿Falta la actividad? Agrégala en <a href="/configuracion/tiempos">Actividades y tiempos</a>.</p>
+</div>
+<style>
+  .nota { min-width: 200px; }
+  #tablaClasificar select { min-width: 210px; max-width: 280px; }
+  .error-fila { color: #b91c1c; font-size: .8rem; max-width: 200px; white-space: normal; }
+  tr.hecho { opacity: .4; }
+</style>
+<script>
+document.querySelectorAll('#tablaClasificar tbody tr').forEach(tr => {
+  const selOrden = tr.querySelector('.selOrden');
+  const selAct = tr.querySelector('.selActividad');
+  const error = tr.querySelector('.error-fila');
+  const mostrarError = (m) => { error.textContent = m; };
+
+  selOrden.addEventListener('change', async () => {
+    selAct.innerHTML = '<option value="">Cargando…</option>';
+    selAct.disabled = true;
+    if (!selOrden.value) { selAct.innerHTML = '<option value="">Primero la orden</option>'; return; }
+    try {
+      const r = await fetch(`/config/por_clasificar/actividades/${selOrden.value}`);
+      const lista = await r.json();
+      if (!r.ok) throw new Error(lista.detail || 'No se pudieron cargar');
+      if (!lista.length) { selAct.innerHTML = '<option value="">Esta orden no tiene actividades</option>'; return; }
+      selAct.innerHTML = '<option value="">Elegir actividad…</option>';
+      let grupo = null, og = null;
+      for (const a of lista) {
+        if (a.proceso !== grupo) { og = document.createElement('optgroup'); og.label = a.proceso; selAct.appendChild(og); grupo = a.proceso; }
+        const op = document.createElement('option');
+        op.value = a.id; op.textContent = `${a.nombre} (${a.hechas}/${a.total})`;
+        og.appendChild(op);
+      }
+      selAct.disabled = false;
+    } catch (e) { selAct.innerHTML = '<option value="">Error al cargar</option>'; mostrarError(e.message); }
+  });
+
+  tr.querySelector('.btnAsignar').addEventListener('click', async (ev) => {
+    mostrarError('');
+    if (!selOrden.value) return mostrarError('Elige la orden');
+    if (!selAct.value) return mostrarError('Elige la actividad');
+    const cantidad = parseInt(tr.querySelector('.cant').value || '0', 10);
+    if (isNaN(cantidad) || cantidad < 0) return mostrarError('Cantidad inválida');
+    ev.target.disabled = true;
+    try {
+      const r = await fetch(`/config/por_clasificar/${tr.dataset.id}/asignar`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({orden_id: +selOrden.value, actividad_id: +selAct.value, cantidad})
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.detail || 'No se pudo asignar');
+      tr.classList.add('hecho');
+      tr.querySelectorAll('select, input, button').forEach(x => x.disabled = true);
+      mostrarError('');
+      tr.lastElementChild.insertAdjacentHTML('beforeend', '<span class="pill pill-verde">Asignado</span>');
+    } catch (e) { mostrarError(e.message); ev.target.disabled = false; }
+  });
+
+  tr.querySelector('.btnBorrar').addEventListener('click', async () => {
+    if (!confirm('¿Borrar este registro? El tiempo de ese operario en esa pasada queda libre para registrarlo de nuevo.')) return;
+    const r = await fetch(`/config/por_clasificar/${tr.dataset.id}`, {method: 'DELETE'});
+    if (r.ok) tr.remove(); else mostrarError('No se pudo borrar');
+  });
+});
+</script>
+{% endif %}
+{% endblock %}

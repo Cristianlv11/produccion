@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from auth import require_admin
-from database import db
+from database import db, crear_orden, sincronizar_actividades_ordenes_abiertas
 from routers.android import leer_token_android
 
 router = APIRouter()
@@ -65,6 +65,24 @@ def asegurar_schema_cortes(cursor):
     cursor.execute("ALTER TABLE actividades ADD COLUMN IF NOT EXISTS indirecta BOOLEAN DEFAULT FALSE")
     # Área del operario (Soldadura, Pintura…): solo agrupa la lista en la app; puede registrar en cualquier proceso
     cursor.execute("ALTER TABLE operarios ADD COLUMN IF NOT EXISTS area TEXT")
+    # Lo que se hizo en un tramo cuando la supervisora no sabe a qué orden va: guarda el tiempo
+    # del operario y luego, en la web, se asigna a la orden y actividad correctas
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS registros_por_clasificar(
+            id SERIAL PRIMARY KEY,
+            operario_id INTEGER NOT NULL,
+            corte_id INTEGER NOT NULL,
+            fecha_corte DATE NOT NULL,
+            cantidad INTEGER DEFAULT 0,
+            inicio TEXT,
+            fin TEXT,
+            tiempo INTEGER NOT NULL,
+            nota TEXT,
+            registrado_por INTEGER,
+            creado TIMESTAMP DEFAULT NOW()
+        )""")
+    # Actividades creadas desde la app: no tienen estándar hasta revisarlas en la web
+    cursor.execute("ALTER TABLE actividades ADD COLUMN IF NOT EXISTS creada_en_app BOOLEAN DEFAULT FALSE")
     from costos import asegurar_parametros
     asegurar_parametros(cursor)
 
@@ -177,6 +195,17 @@ def aplicar_avance(cursor, orden_id: int, actividad_id: int, delta: int):
     cursor.execute("UPDATE ordenes SET porcentaje = %s WHERE id = %s", (porcentaje, orden_id))
 
 
+def minutos_usados(cursor, operario_id: int, dia: date, corte_id: int) -> int:
+    """Minutos del tramo ya asignados al operario, contando los registros por clasificar."""
+    cursor.execute("""
+        SELECT COALESCE((SELECT SUM(tiempo) FROM registros_produccion
+                         WHERE operario_id = %s AND fecha_corte = %s AND corte_id = %s), 0)
+             + COALESCE((SELECT SUM(tiempo) FROM registros_por_clasificar
+                         WHERE operario_id = %s AND fecha_corte = %s AND corte_id = %s), 0)
+    """, (operario_id, dia, corte_id, operario_id, dia, corte_id))
+    return round(cursor.fetchone()[0] / 60)
+
+
 def registros_del_dia(cursor, fecha: date):
     cursor.execute("""
         SELECT r.id, r.operario_id, r.corte_id, r.orden_id, m.nombre, a.nombre, p.nombre,
@@ -189,12 +218,24 @@ def registros_del_dia(cursor, fecha: date):
         WHERE r.fecha_corte = %s AND r.registrado_por IS NOT NULL
         ORDER BY r.id
     """, (fecha,))
-    return [{
+    salida = [{
         "id": r[0], "operario_id": r[1], "corte_id": r[2], "orden_id": r[3],
         "orden": etiqueta_orden(r[3], r[4], r[11]), "actividad": r[5] or "", "proceso": r[6] or "",
         "cantidad": r[7], "inicio": (r[8] or "")[11:16], "fin": (r[9] or "")[11:16],
         "minutos": round(r[10] / 60), "observacion": r[12] or "",
     } for r in cursor.fetchall()]
+    # Los por clasificar van con id negativo y orden 0: la app los muestra y los borra por su propia ruta
+    cursor.execute("""
+        SELECT id, operario_id, corte_id, cantidad, inicio, fin, tiempo, nota
+        FROM registros_por_clasificar WHERE fecha_corte = %s ORDER BY id
+    """, (fecha,))
+    salida += [{
+        "id": -r[0], "operario_id": r[1], "corte_id": r[2], "orden_id": 0,
+        "orden": "Por clasificar", "actividad": "Por clasificar", "proceso": "",
+        "cantidad": r[3] or 0, "inicio": (r[4] or "")[11:16], "fin": (r[5] or "")[11:16],
+        "minutos": round(r[6] / 60), "observacion": r[7] or "",
+    } for r in cursor.fetchall()]
+    return salida
 
 
 # ================= API PARA LA APP (SUPERVISIÓN) =================
@@ -258,6 +299,22 @@ def actividades_orden(orden_id: int, supervisor=Depends(supervisor_android)):
     return datos
 
 
+def ubicar_en_tramo(c, operario_id, dia, corte, minutos_pedidos):
+    """El tiempo se reparte dentro del tramo: cada actividad empieza donde terminó la anterior."""
+    usados = minutos_usados(c, operario_id, dia, corte["id"])
+    disponibles = corte["minutos_tramo"] - usados
+    if disponibles <= 0:
+        raise HTTPException(status_code=400, detail="Este operario ya tiene todo el tiempo del tramo asignado")
+    if minutos_pedidos in (None, ""):
+        minutos = disponibles
+    else:
+        minutos = int(minutos_pedidos)
+        if minutos <= 0 or minutos > disponibles:
+            raise HTTPException(status_code=400, detail=f"Los minutos deben estar entre 1 y {disponibles}")
+    inicio = datetime.combine(dia, datetime.strptime(corte["desde"], "%H:%M").time()) + timedelta(minutes=usados)
+    return inicio, inicio + timedelta(minutes=minutos), minutos
+
+
 @router.post("/supervisor/registro")
 def registrar(data: dict, supervisor=Depends(supervisor_android)):
     try:
@@ -304,24 +361,7 @@ def registrar(data: dict, supervisor=Depends(supervisor_android)):
         if c.fetchone():
             raise HTTPException(status_code=409, detail="Esa actividad ya está registrada para este operario en este corte. Bórrela y regístrela de nuevo para corregirla, o escriba una observación distinta si es otra pieza.")
 
-        # El tiempo se reparte dentro del tramo: cada actividad empieza donde terminó la anterior
-        c.execute("""
-            SELECT COALESCE(SUM(tiempo), 0) FROM registros_produccion
-            WHERE operario_id = %s AND fecha_corte = %s AND corte_id = %s
-        """, (operario_id, dia, corte_id))
-        usados = round(c.fetchone()[0] / 60)
-        disponibles = corte["minutos_tramo"] - usados
-        if disponibles <= 0:
-            raise HTTPException(status_code=400, detail="Este operario ya tiene todo el tiempo del tramo asignado")
-        if minutos_pedidos in (None, ""):
-            minutos = disponibles
-        else:
-            minutos = int(minutos_pedidos)
-            if minutos <= 0 or minutos > disponibles:
-                raise HTTPException(status_code=400, detail=f"Los minutos deben estar entre 1 y {disponibles}")
-
-        inicio = datetime.combine(dia, datetime.strptime(corte["desde"], "%H:%M").time()) + timedelta(minutes=usados)
-        fin = inicio + timedelta(minutes=minutos)
+        inicio, fin, minutos = ubicar_en_tramo(c, operario_id, dia, corte, minutos_pedidos)
         c.execute("""
             INSERT INTO registros_produccion
                 (operario_id, orden_id, actividad_id, cantidad, inicio, fin, tiempo,
@@ -363,6 +403,310 @@ def borrar_registro(registro_id: int, supervisor=Depends(supervisor_android)):
     except Exception:
         conn.rollback()
         raise
+    finally:
+        conn.close()
+    return {"ok": True}
+
+
+# ---- Desde la app: orden nueva, actividad que falta y registros por clasificar ----
+
+def _entero(data, campo, nombre):
+    try:
+        return int(data.get(campo))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail=f"Falta {nombre}")
+
+
+def _texto(data, campo, nombre, largo=80):
+    valor = str(data.get(campo) or "").strip()[:largo]
+    if not valor:
+        raise HTTPException(status_code=400, detail=f"Escriba {nombre}")
+    return valor
+
+
+@router.get("/supervisor/productos")
+def productos_supervision(supervisor=Depends(supervisor_android)):
+    conn = db()
+    c = conn.cursor()
+    try:
+        c.execute("SELECT id, nombre FROM maquinas WHERE COALESCE(activo, TRUE) = TRUE ORDER BY nombre")
+        return [{"id": r[0], "nombre": r[1]} for r in c.fetchall()]
+    finally:
+        conn.close()
+
+
+@router.post("/supervisor/orden")
+def crear_orden_supervision(data: dict, supervisor=Depends(supervisor_android)):
+    """Orden nueva desde la app, para el trabajo que llegó a planta sin orden (p. ej. despulpadoras cortadas ayer)."""
+    maquina_id = _entero(data, "maquina_id", "el producto")
+    cantidad = _entero(data, "cantidad", "la cantidad")
+    if cantidad <= 0 or cantidad > 100000:
+        raise HTTPException(status_code=400, detail="La cantidad debe ser mayor que 0")
+    conn = db()
+    c = conn.cursor()
+    try:
+        c.execute("SELECT nombre FROM maquinas WHERE id = %s AND COALESCE(activo, TRUE) = TRUE", (maquina_id,))
+        row = c.fetchone()
+        if not row:
+            raise HTTPException(status_code=400, detail="El producto no existe o está inactivo")
+        orden_id = crear_orden(c, maquina_id, cantidad, data.get("nota"))
+        c.execute("SELECT nota FROM ordenes WHERE id = %s", (orden_id,))
+        nota = c.fetchone()[0]
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return {"id": orden_id, "etiqueta": etiqueta_orden(orden_id, row[0], nota), "maquina": row[0],
+            "nota": nota or "", "cantidad": cantidad, "porcentaje": 0.0}
+
+
+@router.get("/supervisor/procesos/{orden_id}")
+def procesos_orden(orden_id: int, supervisor=Depends(supervisor_android)):
+    """Procesos del producto de la orden (aunque todavía no tengan actividades), para agregar la que falta."""
+    conn = db()
+    c = conn.cursor()
+    try:
+        c.execute("""
+            SELECT p.nombre FROM procesos p JOIN ordenes o ON o.maquina_id = p.maquina_id
+            WHERE o.id = %s AND COALESCE(p.activo, TRUE) = TRUE ORDER BY p.id
+        """, (orden_id,))
+        return [r[0] for r in c.fetchall()]
+    finally:
+        conn.close()
+
+
+@router.post("/supervisor/actividad")
+def crear_actividad_supervision(data: dict, supervisor=Depends(supervisor_android)):
+    """Actividad que falta en el producto de la orden. Queda sin estándar (no cuenta en la eficiencia
+    ni en los bonos) hasta que se le pongan los minutos en Revisión de estándares."""
+    orden_id = _entero(data, "orden_id", "la orden")
+    proceso_nombre = _texto(data, "proceso", "el proceso")
+    nombre = _texto(data, "nombre", "el nombre de la actividad")
+    conn = db()
+    c = conn.cursor()
+    try:
+        from routers.configuracion import sincronizar_secuencia
+        asegurar_schema_cortes(c)
+        c.execute("SELECT maquina_id FROM ordenes WHERE id = %s AND estado != 'CERRADA'", (orden_id,))
+        row = c.fetchone()
+        if not row:
+            raise HTTPException(status_code=400, detail="La orden no existe o está cerrada")
+        maquina_id = row[0]
+        c.execute("SELECT id, COALESCE(activo, TRUE) FROM procesos WHERE maquina_id = %s AND lower(trim(nombre)) = lower(%s) ORDER BY id LIMIT 1",
+                  (maquina_id, proceso_nombre))
+        proc = c.fetchone()
+        if proc:
+            proceso_id = proc[0]
+            if not proc[1]:
+                c.execute("UPDATE procesos SET activo = TRUE WHERE id = %s", (proceso_id,))
+        else:
+            sincronizar_secuencia(c, "procesos")
+            c.execute("INSERT INTO procesos (maquina_id, nombre) VALUES (%s, %s) RETURNING id", (maquina_id, proceso_nombre))
+            proceso_id = c.fetchone()[0]
+        c.execute("SELECT id, COALESCE(activo, TRUE) FROM actividades WHERE proceso_id = %s AND lower(trim(nombre)) = lower(%s) ORDER BY id LIMIT 1",
+                  (proceso_id, nombre))
+        act = c.fetchone()
+        if act:
+            actividad_id = act[0]
+            if not act[1]:
+                c.execute("UPDATE actividades SET activo = TRUE WHERE id = %s", (actividad_id,))
+        else:
+            sincronizar_secuencia(c, "actividades")
+            c.execute("INSERT INTO actividades (proceso_id, nombre, creada_en_app) VALUES (%s, %s, TRUE) RETURNING id",
+                      (proceso_id, nombre))
+            actividad_id = c.fetchone()[0]
+        sincronizar_actividades_ordenes_abiertas(c)
+        c.execute("SELECT nombre FROM procesos WHERE id = %s", (proceso_id,))
+        proceso_real = c.fetchone()[0]
+        c.execute("SELECT nombre FROM actividades WHERE id = %s", (actividad_id,))
+        nombre_real = c.fetchone()[0]
+        c.execute("SELECT cantidad_realizada, cantidad_total FROM orden_actividades WHERE orden_id = %s AND actividad_id = %s",
+                  (orden_id, actividad_id))
+        oa = c.fetchone() or (0, 0)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return {"id": actividad_id, "nombre": nombre_real, "proceso": proceso_real, "hechas": oa[0] or 0, "total": oa[1] or 0}
+
+
+@router.post("/supervisor/por_clasificar")
+def registrar_por_clasificar(data: dict, supervisor=Depends(supervisor_android)):
+    """Guarda el tiempo del operario cuando no se sabe a qué orden va; se asigna después en la web."""
+    operario_id = _entero(data, "operario_id", "el operario")
+    corte_id = _entero(data, "corte_id", "la pasada")
+    try:
+        cantidad = int(data.get("cantidad") or 0)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Cantidad inválida")
+    if cantidad < 0:
+        raise HTTPException(status_code=400, detail="La cantidad no puede ser negativa")
+    nota = _texto(data, "nota", "qué estaba haciendo (por ejemplo «soldando piezas de despulpadora»)", 200)
+    dia = date.fromisoformat(data["fecha"]) if data.get("fecha") else hoy()
+    conn = db()
+    c = conn.cursor()
+    try:
+        asegurar_schema_cortes(c)
+        corte = next((x for x in cortes_activos(c) if x["id"] == corte_id), None)
+        if not corte or not corte["desde"]:
+            raise HTTPException(status_code=400, detail="Ese corte no cierra ningún tramo")
+        c.execute("SELECT 1 FROM operarios WHERE id = %s AND COALESCE(activo, TRUE) = TRUE", (operario_id,))
+        if not c.fetchone():
+            raise HTTPException(status_code=400, detail="El operario no existe o está inactivo")
+        inicio, fin, minutos = ubicar_en_tramo(c, operario_id, dia, corte, data.get("minutos"))
+        c.execute("""
+            INSERT INTO registros_por_clasificar
+                (operario_id, corte_id, fecha_corte, cantidad, inicio, fin, tiempo, nota, registrado_por)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id
+        """, (operario_id, corte_id, dia, cantidad, inicio.strftime("%Y-%m-%d %H:%M:%S"),
+              fin.strftime("%Y-%m-%d %H:%M:%S"), minutos * 60, nota, supervisor["user_id"]))
+        nuevo = c.fetchone()[0]
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return {"ok": True, "id": -nuevo, "inicio": inicio.strftime("%H:%M"), "fin": fin.strftime("%H:%M"), "minutos": minutos}
+
+
+@router.delete("/supervisor/por_clasificar/{registro_id}")
+def borrar_por_clasificar(registro_id: int, supervisor=Depends(supervisor_android)):
+    conn = db()
+    c = conn.cursor()
+    try:
+        c.execute("DELETE FROM registros_por_clasificar WHERE id = %s", (abs(registro_id),))
+        if c.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Registro no encontrado")
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True}
+
+
+# ================= WEB: REGISTROS POR CLASIFICAR =================
+
+def contar_por_clasificar(cursor):
+    try:
+        cursor.execute("SELECT COUNT(*) FROM registros_por_clasificar")
+        return cursor.fetchone()[0]
+    except Exception:
+        cursor.connection.rollback()
+        return 0
+
+
+@router.get("/configuracion/por_clasificar", response_class=HTMLResponse)
+def vista_por_clasificar(request: Request):
+    if "username" not in request.session:
+        return RedirectResponse("/admin?next=configuracion/por_clasificar", 303)
+    if request.session.get("role") != "admin":
+        return RedirectResponse("/", 303)
+    conn = db()
+    c = conn.cursor()
+    try:
+        asegurar_schema_cortes(c)
+        conn.commit()
+        c.execute("""
+            SELECT r.id, op.nombre, r.fecha_corte, ch.nombre, r.inicio, r.fin, r.tiempo, r.cantidad, r.nota, u.username
+            FROM registros_por_clasificar r
+            JOIN operarios op ON op.id = r.operario_id
+            LEFT JOIN cortes_horario ch ON ch.id = r.corte_id
+            LEFT JOIN users u ON u.id = r.registrado_por
+            ORDER BY r.fecha_corte, r.inicio, r.id
+        """)
+        filas = [{"id": r[0], "operario": r[1], "fecha": r[2].strftime("%d/%m"), "pasada": r[3] or "",
+                  "horas": f"{(r[4] or '')[11:16]}–{(r[5] or '')[11:16]}", "minutos": round(r[6] / 60),
+                  "cantidad": r[7] or 0, "nota": r[8] or "", "por": r[9] or ""} for r in c.fetchall()]
+        c.execute("""
+            SELECT o.id, m.nombre, o.nota FROM ordenes o LEFT JOIN maquinas m ON m.id = o.maquina_id
+            WHERE o.estado != 'CERRADA' ORDER BY o.id DESC
+        """)
+        ordenes = [{"id": r[0], "etiqueta": etiqueta_orden(r[0], r[1], r[2])} for r in c.fetchall()]
+    finally:
+        conn.close()
+    return request.app.state.templates.TemplateResponse(
+        request=request, name="por_clasificar.html",
+        context={"request": request, "filas": filas, "ordenes": ordenes},
+    )
+
+
+@router.get("/config/por_clasificar/actividades/{orden_id}")
+def actividades_para_clasificar(orden_id: int, request: Request):
+    if not require_admin(request):
+        return JSONResponse({"detail": "No autorizado"}, status_code=403)
+    conn = db()
+    c = conn.cursor()
+    try:
+        c.execute("""
+            SELECT a.id, p.nombre, a.nombre, oa.cantidad_realizada, oa.cantidad_total
+            FROM orden_actividades oa
+            JOIN actividades a ON a.id = oa.actividad_id
+            JOIN procesos p ON p.id = a.proceso_id
+            WHERE oa.orden_id = %s AND COALESCE(a.activo, TRUE) = TRUE AND COALESCE(p.activo, TRUE) = TRUE
+            ORDER BY p.id, a.id
+        """, (orden_id,))
+        return [{"id": r[0], "proceso": r[1], "nombre": r[2], "hechas": r[3] or 0, "total": r[4] or 0} for r in c.fetchall()]
+    finally:
+        conn.close()
+
+
+@router.post("/config/por_clasificar/{registro_id}/asignar")
+def asignar_por_clasificar(registro_id: int, data: dict, request: Request):
+    """Pasa el registro a la orden y actividad elegidas: queda como un registro normal de esa pasada."""
+    if not require_admin(request):
+        return JSONResponse({"detail": "No autorizado"}, status_code=403)
+    orden_id = _entero(data, "orden_id", "la orden")
+    actividad_id = _entero(data, "actividad_id", "la actividad")
+    cantidad = _entero(data, "cantidad", "la cantidad")
+    if cantidad < 0:
+        raise HTTPException(status_code=400, detail="La cantidad no puede ser negativa")
+    conn = db()
+    c = conn.cursor()
+    try:
+        c.execute("""
+            SELECT operario_id, corte_id, fecha_corte, inicio, fin, tiempo, nota, registrado_por
+            FROM registros_por_clasificar WHERE id = %s FOR UPDATE
+        """, (registro_id,))
+        r = c.fetchone()
+        if not r:
+            raise HTTPException(status_code=404, detail="Ese registro ya fue clasificado o borrado")
+        c.execute("""
+            SELECT 1 FROM orden_actividades oa JOIN ordenes o ON o.id = oa.orden_id
+            WHERE oa.orden_id = %s AND oa.actividad_id = %s AND o.estado != 'CERRADA'
+        """, (orden_id, actividad_id))
+        if not c.fetchone():
+            raise HTTPException(status_code=400, detail="La actividad no pertenece a esa orden abierta")
+        c.execute("""
+            INSERT INTO registros_produccion
+                (operario_id, orden_id, actividad_id, cantidad, inicio, fin, tiempo,
+                 registrado_por, corte_id, fecha_corte, observacion)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id
+        """, (r[0], orden_id, actividad_id, cantidad, r[3], r[4], r[5], r[7] or 0, r[1], r[2], (r[6] or "")[:200] or None))
+        nuevo = c.fetchone()[0]
+        aplicar_avance(c, orden_id, actividad_id, cantidad)
+        c.execute("DELETE FROM registros_por_clasificar WHERE id = %s", (registro_id,))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return {"ok": True, "id": nuevo}
+
+
+@router.delete("/config/por_clasificar/{registro_id}")
+def borrar_por_clasificar_web(registro_id: int, request: Request):
+    if not require_admin(request):
+        return JSONResponse({"detail": "No autorizado"}, status_code=403)
+    conn = db()
+    c = conn.cursor()
+    try:
+        c.execute("DELETE FROM registros_por_clasificar WHERE id = %s", (registro_id,))
+        conn.commit()
     finally:
         conn.close()
     return {"ok": True}

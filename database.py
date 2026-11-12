@@ -84,6 +84,19 @@ def sincronizar_actividades_ordenes_abiertas(cursor, orden_id=None):
     ''', params)
     return cursor.rowcount
 
+def crear_orden(cursor, maquina_id: int, cantidad: int, nota=None):
+    """Crea la orden ABIERTA y le copia las actividades activas del producto. Devuelve el id.
+    La usan la web (Producción) y la app de supervisión."""
+    nota = (nota or "").strip()[:80] or None
+    cursor.execute("""
+        INSERT INTO ordenes(maquina_id, cantidad, estado, nota)
+        VALUES (%s, %s, 'ABIERTA', %s) RETURNING id
+    """, (maquina_id, cantidad, nota))
+    orden_id = cursor.fetchone()[0]
+    sincronizar_actividades_ordenes_abiertas(cursor, orden_id)
+    return orden_id
+
+
 def recalcular_porcentaje_orden(cursor, orden_id):
     """
     Recalcula el porcentaje de avance de una orden basándose en las actividades

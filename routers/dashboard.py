@@ -2,7 +2,7 @@ from fastapi import APIRouter, Request, Depends, Form
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from auth import require_admin, require_operario
 from routers.android import guardar_registro_android
-from database import db, sincronizar_actividades_ordenes_abiertas
+from database import db, sincronizar_actividades_ordenes_abiertas, crear_orden
 from datetime import datetime
 from limiter import limiter
 
@@ -308,28 +308,7 @@ def crear_orden_web(cantidad: int = Form(...), maquina: int = Form(...), nota: s
     c = conn.cursor()
 
     # La nota distingue órdenes del mismo producto (p. ej. "Exportación"); se ve en la app de cortes
-    c.execute("""
-        INSERT INTO ordenes(maquina_id, cantidad, estado, nota)
-        VALUES (%s, %s, 'ABIERTA', %s) RETURNING id
-    """, (maquina, cantidad, nota.strip()[:80] or None))
-
-    orden_id = c.fetchone()[0]
-
-    c.execute("""
-        SELECT a.id
-        FROM actividades a
-        JOIN procesos p ON a.proceso_id = p.id
-        WHERE p.maquina_id = %s
-          AND COALESCE(p.activo, TRUE) = TRUE AND COALESCE(a.activo, TRUE) = TRUE
-    """, (maquina,))
-    acts = c.fetchall()
-
-    for a in acts:
-        c.execute("""
-            INSERT INTO orden_actividades
-            (orden_id, actividad_id, cantidad_total, cantidad_realizada)
-            VALUES (%s, %s, %s, 0)
-        """, (orden_id, a[0], cantidad))
+    crear_orden(c, maquina, cantidad, nota)
 
     conn.commit()
     conn.close()

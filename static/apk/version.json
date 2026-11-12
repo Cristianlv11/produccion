@@ -1,8 +1,8 @@
 {
-    "versionCode":  7,
-    "versionName":  "1.6",
-    "apk":  "produccionhmi-7.apk",
-    "sha256":  "badc4ac26df70fe09ecf995d8f5d9a71d9ee67b6c673f03024d353676b46a085",
-    "notes":  "Operarios agrupados por área y buscador",
+    "versionCode":  8,
+    "versionName":  "1.7",
+    "apk":  "produccionhmi-8.apk",
+    "sha256":  "2790c7a66ea6166afc30a6c1fd27054046ca77f82cb2bb59fa5853ef539210f4",
+    "notes":  "Crear orden y actividad desde la app; registro por clasificar",
     "forceUpdate":  false
 }

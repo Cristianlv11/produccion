@@ -33,6 +33,10 @@
       <div class="hub-icono">🎯</div>
       <div><h3>Revisión de estándares</h3><p>Compara el tiempo estándar con lo que de verdad toma cada actividad y corrígelo en un clic. Aquí también se marcan las actividades indirectas.</p></div>
     </a>
+    <a class="hub-card{{ ' hub-destacada' if por_clasificar }}" href="/configuracion/por_clasificar">
+      <div class="hub-icono">🗂️</div>
+      <div><h3>Por clasificar{% if por_clasificar %} <span class="pill pill-ambar">{{ por_clasificar }}</span>{% endif %}</h3><p>Lo que se registró en la app sin saber la orden. Aquí se le asigna la orden y la actividad.</p></div>
+    </a>
     <a class="hub-card" href="/admin_tools/registros_revisar">
       <div class="hub-icono">🔎</div>
       <div><h3>Registros para revisar</h3><p>Registros demasiado largos, que se cruzan o con cantidades raras, que dañan las métricas y los bonos.</p></div>
