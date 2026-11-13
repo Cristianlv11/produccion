@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from auth import require_admin
-from database import db, crear_orden, sincronizar_actividades_ordenes_abiertas
+from database import db, crear_orden, sincronizar_actividades_ordenes_abiertas, actividades_del_producto
 from routers.android import leer_token_android
 
 router = APIRouter()
@@ -449,7 +449,11 @@ def crear_orden_supervision(data: dict, supervisor=Depends(supervisor_android)):
         row = c.fetchone()
         if not row:
             raise HTTPException(status_code=400, detail="El producto no existe o está inactivo")
-        orden_id = crear_orden(c, maquina_id, cantidad, data.get("nota"))
+        # «incluir» (1.8): solo las actividades que faltan; sin él, todas (apps anteriores)
+        incluir = data.get("incluir")
+        if incluir is not None and not isinstance(incluir, list):
+            raise HTTPException(status_code=400, detail="Lista de actividades inválida")
+        orden_id = crear_orden(c, maquina_id, cantidad, data.get("nota"), incluir)
         c.execute("SELECT nota FROM ordenes WHERE id = %s", (orden_id,))
         nota = c.fetchone()[0]
         conn.commit()
@@ -460,6 +464,16 @@ def crear_orden_supervision(data: dict, supervisor=Depends(supervisor_android)):
         conn.close()
     return {"id": orden_id, "etiqueta": etiqueta_orden(orden_id, row[0], nota), "maquina": row[0],
             "nota": nota or "", "cantidad": cantidad, "porcentaje": 0.0}
+
+
+@router.get("/supervisor/actividades_producto/{maquina_id}")
+def actividades_producto_supervision(maquina_id: int, supervisor=Depends(supervisor_android)):
+    """Actividades del producto, para elegir las que faltan al crear la orden."""
+    conn = db()
+    try:
+        return [{"id": r[0], "nombre": r[1], "proceso": r[2]} for r in actividades_del_producto(conn.cursor(), maquina_id)]
+    finally:
+        conn.close()
 
 
 @router.get("/supervisor/procesos/{orden_id}")
@@ -517,6 +531,8 @@ def crear_actividad_supervision(data: dict, supervisor=Depends(supervisor_androi
             c.execute("INSERT INTO actividades (proceso_id, nombre, creada_en_app) VALUES (%s, %s, TRUE) RETURNING id",
                       (proceso_id, nombre))
             actividad_id = c.fetchone()[0]
+        # Si se había dejado como «no aplica» en esta orden, se pidió explícitamente: vuelve a la orden
+        c.execute("DELETE FROM orden_actividades_omitidas WHERE orden_id = %s AND actividad_id = %s", (orden_id, actividad_id))
         sincronizar_actividades_ordenes_abiertas(c)
         c.execute("SELECT nombre FROM procesos WHERE id = %s", (proceso_id,))
         proceso_real = c.fetchone()[0]

@@ -81,18 +81,46 @@ def sincronizar_actividades_ordenes_abiertas(cursor, orden_id=None):
             WHERE oa.orden_id = o.id
             AND oa.actividad_id = a.id
         )
+        AND NOT EXISTS (
+            SELECT 1 FROM orden_actividades_omitidas om
+            WHERE om.orden_id = o.id AND om.actividad_id = a.id
+        )
     ''', params)
     return cursor.rowcount
 
-def crear_orden(cursor, maquina_id: int, cantidad: int, nota=None):
+def actividades_del_producto(cursor, maquina_id: int):
+    """Actividades activas del producto, en orden de proceso: [(id, nombre, proceso)]."""
+    cursor.execute("""
+        SELECT a.id, a.nombre, p.nombre
+        FROM actividades a JOIN procesos p ON p.id = a.proceso_id
+        WHERE p.maquina_id = %s AND COALESCE(p.activo, TRUE) = TRUE AND COALESCE(a.activo, TRUE) = TRUE
+        ORDER BY p.id, a.id
+    """, (maquina_id,))
+    return cursor.fetchall()
+
+
+def crear_orden(cursor, maquina_id: int, cantidad: int, nota=None, incluir=None):
     """Crea la orden ABIERTA y le copia las actividades activas del producto. Devuelve el id.
+    Con `incluir` (ids) solo lleva esas: las demás quedan como «no aplica» en esta orden,
+    para ponerse al día con máquinas que ya pasaron por algunos procesos.
     La usan la web (Producción) y la app de supervisión."""
     nota = (nota or "").strip()[:80] or None
+    omitir = []
+    if incluir is not None:
+        elegidas = {int(x) for x in incluir}
+        todas = [r[0] for r in actividades_del_producto(cursor, maquina_id)]
+        if todas and not elegidas.intersection(todas):
+            from fastapi import HTTPException
+            raise HTTPException(status_code=400, detail="Elija al menos una actividad que falte")
+        omitir = [a for a in todas if a not in elegidas]
     cursor.execute("""
         INSERT INTO ordenes(maquina_id, cantidad, estado, nota)
         VALUES (%s, %s, 'ABIERTA', %s) RETURNING id
     """, (maquina_id, cantidad, nota))
     orden_id = cursor.fetchone()[0]
+    for actividad_id in omitir:
+        cursor.execute("INSERT INTO orden_actividades_omitidas (orden_id, actividad_id) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                       (orden_id, actividad_id))
     sincronizar_actividades_ordenes_abiertas(cursor, orden_id)
     return orden_id
 

@@ -4,7 +4,10 @@
 
 <div class="card">
     <h3 style="margin-top:0;">Crear Orden</h3>
-    <form action="/crear_orden_web" method="post" style="display:flex; gap:15px; align-items:flex-end; flex-wrap:wrap;">
+    {% if request.query_params.get("error") %}
+    <div style="background:#fee2e2; color:#991b1b; padding:10px 14px; border-radius:8px; margin-bottom:12px;">{{ request.query_params.get("error") }}</div>
+    {% endif %}
+    <form action="/crear_orden_web" method="post" id="formOrden" style="display:flex; gap:15px; align-items:flex-end; flex-wrap:wrap;">
     <input type="hidden" name="csrf_token" value="{{ request.session.csrf_token }}">
         <div class="form-group" style="margin-bottom:0; flex:1; min-width:150px;">
             <label>Cantidad:</label>
@@ -12,7 +15,8 @@
         </div>
         <div class="form-group" style="margin-bottom:0; flex:2; min-width:200px;">
             <label>Producto:</label>
-            <select name="maquina">
+            <select name="maquina" id="selMaquina">
+                <option value="">Elegir producto…</option>
                 {% for m in maquinas %}
                 <option value="{{m[0]}}">{{m[1]}}</option>
                 {% endfor %}
@@ -23,8 +27,72 @@
             <input name="nota" type="text" maxlength="80" placeholder="Exportación, cliente, lote…">
         </div>
         <button type="submit" class="btn">Crear</button>
+
+        <!-- Qué actividades faltan: para ponerse al día con máquinas que ya pasaron por algunos procesos -->
+        <div id="bloqueActividades" style="flex-basis:100%; display:none;">
+            <label style="display:flex; gap:8px; align-items:center; font-weight:600; margin:4px 0 8px;">
+                <input type="checkbox" name="elegir" value="1" id="chkElegir">
+                Solo algunas actividades (la máquina ya va adelantada)
+            </label>
+            <div id="listaActividades" style="display:none;">
+                <p style="color:var(--text-muted); font-size:.9rem; margin:0 0 10px;">Deja marcadas solo las actividades que <b>faltan</b>. Las desmarcadas quedan como «no aplica» en esta orden y no cuentan en su avance.</p>
+                <div id="gruposActividades" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); gap:14px;"></div>
+            </div>
+        </div>
     </form>
 </div>
+
+<script>
+(() => {
+  const sel = document.getElementById('selMaquina');
+  const bloque = document.getElementById('bloqueActividades');
+  const chk = document.getElementById('chkElegir');
+  const lista = document.getElementById('listaActividades');
+  const grupos = document.getElementById('gruposActividades');
+  sel.required = true;
+  const esc = (t) => String(t).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+  async function cargar() {
+    grupos.innerHTML = '';
+    if (!sel.value) { bloque.style.display = 'none'; return; }
+    bloque.style.display = '';
+    const r = await fetch(`/panel/actividades_producto/${sel.value}`);
+    const acts = r.ok ? await r.json() : [];
+    if (!acts.length) { bloque.style.display = 'none'; chk.checked = false; return; }
+    const porProceso = {};
+    acts.forEach(a => (porProceso[a.proceso] = porProceso[a.proceso] || []).push(a));
+    for (const [proceso, lista_] of Object.entries(porProceso)) {
+      const caja = document.createElement('div');
+      caja.innerHTML = `<label style="display:flex; gap:6px; font-weight:600; margin-bottom:4px;"><input type="checkbox" class="chkProceso" checked> ${esc(proceso)}</label>` +
+        lista_.map(a => `<label style="display:flex; gap:6px; margin-left:22px; font-size:.88rem; color:var(--text-muted);"><input type="checkbox" name="incluir" value="${a.id}" checked> ${esc(a.nombre)}</label>`).join('');
+      const chkP = caja.querySelector('.chkProceso');
+      const hijas = [...caja.querySelectorAll('input[name=incluir]')];
+      chkP.addEventListener('change', () => hijas.forEach(h => h.checked = chkP.checked));
+      hijas.forEach(h => h.addEventListener('change', () => {
+        const n = hijas.filter(x => x.checked).length;
+        chkP.checked = n === hijas.length; chkP.indeterminate = n > 0 && n < hijas.length;
+      }));
+      grupos.appendChild(caja);
+    }
+  }
+  sel.addEventListener('change', cargar);
+  chk.addEventListener('change', () => { lista.style.display = chk.checked ? '' : 'none'; });
+  document.getElementById('formOrden').addEventListener('submit', (e) => {
+    if (chk.checked && !grupos.querySelector('input[name=incluir]:checked')) {
+      e.preventDefault(); alert('Marca al menos una actividad que falte.');
+    }
+  });
+})();
+
+async function cambiarActividad(orden, actividad, accion, boton) {
+  if (accion === 'quitar' && !confirm('¿Quitar esta actividad de la orden? Queda como «no aplica» y se puede volver a incluir.')) return;
+  boton.disabled = true;
+  const r = await fetch(`/orden/${orden}/actividad/${actividad}/${accion}`, {method: 'POST'});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { alert(j.detail || 'No se pudo cambiar'); boton.disabled = false; return; }
+  location.reload();
+}
+</script>
 
 <div class="card">
     <h3 style="margin-top:0;">Sincronizar ordenes abiertas</h3>
@@ -85,14 +153,34 @@
         <div>
             <b style="display:block; margin-bottom:8px; color:var(--text-main); font-size:0.95rem;">{{p.nombre}}</b>
             {% for a in p.actividades %}
-            <div style="margin-left:10px; font-size:0.85rem; color:var(--text-muted); display:flex; justify-content:space-between; padding:3px 0; border-bottom:1px solid #f1f5f9;">
+            <div style="margin-left:10px; font-size:0.85rem; color:var(--text-muted); display:flex; justify-content:space-between; gap:6px; padding:3px 0; border-bottom:1px solid #f1f5f9;">
                 <span>{{a.nombre}}</span>
-                <strong style="color:var(--text-main);">{{a.realizada}} / {{a.total}}</strong>
+                <span style="white-space:nowrap;">
+                    <strong style="color:var(--text-main);">{{a.realizada}} / {{a.total}}</strong>
+                    {% if o.estado != "CERRADA" and not a.realizada %}
+                    <button type="button" title="Quitar de esta orden (no aplica)" onclick="cambiarActividad({{o.id}}, {{a.id}}, 'quitar', this)" style="border:none; background:none; color:#b91c1c; cursor:pointer; padding:0 2px;">✕</button>
+                    {% endif %}
+                </span>
             </div>
             {% endfor %}
         </div>
         {% endfor %}
     </div>
+    {% if o.omitidas %}
+    <details style="margin-top:14px;">
+        <summary style="cursor:pointer; color:var(--text-muted); font-size:.9rem;">No aplica en esta orden ({{ o.omitidas|length }})</summary>
+        <div style="margin-top:8px; display:flex; flex-wrap:wrap; gap:8px;">
+            {% for a in o.omitidas %}
+            <span style="background:#f1f1ee; border-radius:14px; padding:3px 10px; font-size:.85rem;">
+                {{ a.proceso }} · {{ a.nombre }}
+                {% if o.estado != "CERRADA" %}
+                <button type="button" onclick="cambiarActividad({{o.id}}, {{a.id}}, 'incluir', this)" style="border:none; background:none; color:var(--primary); cursor:pointer; font-weight:600;">Volver a incluir</button>
+                {% endif %}
+            </span>
+            {% endfor %}
+        </div>
+    </details>
+    {% endif %}
 </div>
 {% endfor %}
 

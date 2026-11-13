@@ -256,6 +256,15 @@ def startup():
         cantidad_realizada INTEGER DEFAULT 0
     )""")
 
+    # Actividades que no aplican a una orden (p. ej. orden para ponerse al día con máquinas
+    # que ya pasaron por corte): la sincronización no las vuelve a agregar
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS orden_actividades_omitidas(
+        orden_id INTEGER REFERENCES ordenes(id) ON DELETE CASCADE,
+        actividad_id INTEGER REFERENCES actividades(id) ON DELETE CASCADE,
+        PRIMARY KEY (orden_id, actividad_id)
+    )""")
+
     c.execute("""
     CREATE TABLE IF NOT EXISTS registros_produccion(
         id SERIAL PRIMARY KEY,

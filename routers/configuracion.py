@@ -164,6 +164,9 @@ def sincronizar_actividad_en_ordenes_abiertas(cursor, actividad_id: int):
         WHERE a.id = %s AND o.estado != 'CERRADA'
         AND NOT EXISTS (
             SELECT 1 FROM orden_actividades oa WHERE oa.orden_id = o.id AND oa.actividad_id = a.id
+        )
+        AND NOT EXISTS (
+            SELECT 1 FROM orden_actividades_omitidas om WHERE om.orden_id = o.id AND om.actividad_id = a.id
         )""",
         (actividad_id,),
     )

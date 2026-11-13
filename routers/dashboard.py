@@ -1,8 +1,11 @@
-from fastapi import APIRouter, Request, Depends, Form
+from typing import List
+from urllib.parse import quote
+
+from fastapi import APIRouter, Request, Depends, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from auth import require_admin, require_operario
 from routers.android import guardar_registro_android
-from database import db, sincronizar_actividades_ordenes_abiertas, crear_orden
+from database import db, sincronizar_actividades_ordenes_abiertas, crear_orden, actividades_del_producto
 from datetime import datetime
 from limiter import limiter
 
@@ -187,6 +190,18 @@ def panel(request: Request):
     """)
     ordenes_sql = c.fetchall()
 
+    # Actividades que no aplican a cada orden (se pueden volver a incluir)
+    omitidas_por_orden = {}
+    c.execute("""
+        SELECT om.orden_id, a.id, a.nombre, p.nombre
+        FROM orden_actividades_omitidas om
+        JOIN actividades a ON a.id = om.actividad_id
+        JOIN procesos p ON p.id = a.proceso_id
+        ORDER BY p.id, a.id
+    """)
+    for orden_id, act_id, act, pr in c.fetchall():
+        omitidas_por_orden.setdefault(orden_id, []).append({"id": act_id, "nombre": act, "proceso": pr})
+
     ordenes = []
 
     for o in ordenes_sql:
@@ -210,7 +225,8 @@ def panel(request: Request):
                 p.nombre,
                 a.nombre,
                 oa.cantidad_realizada,
-                oa.cantidad_total
+                oa.cantidad_total,
+                a.id
             FROM orden_actividades oa
             JOIN actividades a ON a.id = oa.actividad_id
             JOIN procesos p ON p.id = a.proceso_id
@@ -220,11 +236,12 @@ def panel(request: Request):
         acts = c.fetchall()
 
         procesos = {}
-        for pr, act, real, total in acts:
+        for pr, act, real, total, act_id in acts:
             if pr not in procesos:
                 procesos[pr] = []
             pct = int((real/total)*100) if total else 0
             procesos[pr].append({
+                "id": act_id,
                 "nombre": act,
                 "realizada": real,
                 "total": total,
@@ -239,6 +256,7 @@ def panel(request: Request):
             "porcentaje": porcentaje_general,
             "cerrado_en": o[4],
             "nota": o[5] or "",
+            "omitidas": omitidas_por_orden.get(oid, []),
             "procesos": [
                 {"nombre": k, "actividades": v}
                 for k, v in procesos.items()
@@ -302,18 +320,80 @@ def eliminar(id: int):
 
 
 @router.post("/crear_orden_web")
-def crear_orden_web(cantidad: int = Form(...), maquina: int = Form(...), nota: str = Form("")):
+def crear_orden_web(request: Request, cantidad: int = Form(...), maquina: int = Form(...), nota: str = Form(""),
+                    elegir: str = Form(""), incluir: List[int] = Form(default=[])):
+
+    if not require_admin(request):
+        return RedirectResponse("/admin", 303)
 
     conn = db()
     c = conn.cursor()
-
-    # La nota distingue órdenes del mismo producto (p. ej. "Exportación"); se ve en la app de cortes
-    crear_orden(c, maquina, cantidad, nota)
-
-    conn.commit()
-    conn.close()
+    try:
+        # La nota distingue órdenes del mismo producto (p. ej. "Exportación"); se ve en la app de cortes.
+        # Con «elegir», solo van las actividades marcadas (las que faltan); el resto queda «no aplica».
+        crear_orden(c, maquina, cantidad, nota, incluir if elegir else None)
+        conn.commit()
+    except HTTPException as e:
+        conn.rollback()
+        return RedirectResponse(f"/panel?error={quote(str(e.detail))}", 303)
+    finally:
+        conn.close()
 
     return RedirectResponse("/panel", 303)
+
+
+@router.get("/panel/actividades_producto/{maquina_id}")
+def actividades_producto_web(maquina_id: int, request: Request):
+    if not require_admin(request):
+        return JSONResponse({"detail": "No autorizado"}, status_code=403)
+    conn = db()
+    try:
+        filas = actividades_del_producto(conn.cursor(), maquina_id)
+    finally:
+        conn.close()
+    return [{"id": r[0], "nombre": r[1], "proceso": r[2]} for r in filas]
+
+
+@router.post("/orden/{orden_id}/actividad/{actividad_id}/{accion}")
+def cambiar_actividad_orden(orden_id: int, actividad_id: int, accion: str, request: Request):
+    """Quita una actividad de la orden (solo si no tiene avance) o la vuelve a incluir."""
+    if not require_admin(request):
+        return JSONResponse({"detail": "No autorizado"}, status_code=403)
+    if accion not in ("quitar", "incluir"):
+        return JSONResponse({"detail": "Acción inválida"}, status_code=400)
+    conn = db()
+    c = conn.cursor()
+    try:
+        c.execute("SELECT estado FROM ordenes WHERE id = %s", (orden_id,))
+        row = c.fetchone()
+        if not row or row[0] == "CERRADA":
+            return JSONResponse({"detail": "La orden no existe o está cerrada"}, status_code=400)
+        if accion == "quitar":
+            c.execute("""SELECT COALESCE(cantidad_realizada, 0) FROM orden_actividades
+                         WHERE orden_id = %s AND actividad_id = %s""", (orden_id, actividad_id))
+            oa = c.fetchone()
+            c.execute("SELECT 1 FROM registros_produccion WHERE orden_id = %s AND actividad_id = %s LIMIT 1",
+                      (orden_id, actividad_id))
+            if (oa and oa[0] > 0) or c.fetchone():
+                return JSONResponse({"detail": "Esa actividad ya tiene registros en esta orden: no se puede quitar"}, status_code=400)
+            c.execute("DELETE FROM orden_actividades WHERE orden_id = %s AND actividad_id = %s", (orden_id, actividad_id))
+            c.execute("INSERT INTO orden_actividades_omitidas (orden_id, actividad_id) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                      (orden_id, actividad_id))
+        else:
+            c.execute("DELETE FROM orden_actividades_omitidas WHERE orden_id = %s AND actividad_id = %s", (orden_id, actividad_id))
+            sincronizar_actividades_ordenes_abiertas(c, orden_id)
+        recalcular_avance_orden(c, orden_id)
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True}
+
+
+def recalcular_avance_orden(c, orden_id):
+    c.execute("SELECT SUM(cantidad_realizada), SUM(cantidad_total) FROM orden_actividades WHERE orden_id = %s", (orden_id,))
+    r = c.fetchone()
+    pct = round((r[0] / r[1]) * 100, 2) if r and r[1] else 0
+    c.execute("UPDATE ordenes SET porcentaje = %s WHERE id = %s", (pct, orden_id))
 
 
 @router.get("/sincronizar_ordenes_abiertas")

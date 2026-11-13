@@ -1,8 +1,8 @@
 {
-    "versionCode":  8,
-    "versionName":  "1.7",
-    "apk":  "produccionhmi-8.apk",
-    "sha256":  "2790c7a66ea6166afc30a6c1fd27054046ca77f82cb2bb59fa5853ef539210f4",
-    "notes":  "Crear orden y actividad desde la app; registro por clasificar",
+    "versionCode":  9,
+    "versionName":  "1.8",
+    "apk":  "produccionhmi-9.apk",
+    "sha256":  "975ca1de26024636154962155798bd25f5b32997dea3d85e1a16916ecd2d428a",
+    "notes":  "Crear orden con solo las actividades que faltan",
     "forceUpdate":  false
 }
