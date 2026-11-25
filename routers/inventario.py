@@ -40,7 +40,7 @@ CATEGORIAS = [
 
 # Palabras que deciden la categoría al importar (la primera que coincide gana; Carlos puede cambiarla luego)
 PALABRAS_CATEGORIA = [
-    ("Láminas", ("lamina", "lámina", "laminas")),
+    ("Láminas", (" lamina ", " lámina ", " laminas ")),  # palabra suelta: «laminado» no es una lámina
     ("Gases", ("g.l.p", "glp", " gas ", "cilindro mezcla", "oxigeno", "oxígeno", "nitrogeno", "nitrógeno", "argon", "argón", "acetileno", "co2")),
     ("Tornillería", ("tornillo", "tuerca", "arandela", "guasa", "remache", "prisionero", "esparrago", "espárrago", "perno",
                      "chazo", "puntilla", "grapa", "pasador", "chaveta", "nivelador", "perilla", "guaza", "mariposa", "tonillo")),

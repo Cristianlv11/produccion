@@ -20,7 +20,7 @@
 
   <form class="inv-escaner" id="formEscaner">
     <span class="icono" aria-hidden="true">▮▯▮</span>
-    <input id="escaner" autocomplete="off" autofocus enterkeyhint="go" aria-label="Código del material"
+    <input id="escaner" autocomplete="off" enterkeyhint="go" aria-label="Código del material"
            placeholder="Escanee la etiqueta o escriba el código">
     <button type="button" class="inv-btn primario" id="btnCamara" hidden>📷 Cámara</button>
   </form>
@@ -275,6 +275,8 @@
   }
   $('formEscaner').addEventListener('submit', e => { e.preventDefault(); buscarCodigo($('escaner').value); });
   window.inventarioCodigoLeido = codigo => { $('escaner').value = codigo; buscarCodigo(codigo); };
+  // En el computador el cursor queda listo para la pistola; en la app no, para que no salga el teclado solo
+  if (!invEnApp) $('escaner').focus();
   if (invEnApp) {
     $('btnCamara').hidden = false;
     $('btnCamara').onclick = () => window.InventarioApp.escanear();
