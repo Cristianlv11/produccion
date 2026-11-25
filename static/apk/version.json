@@ -1,8 +1,8 @@
 {
-    "versionCode":  9,
-    "versionName":  "1.8",
-    "apk":  "produccionhmi-9.apk",
-    "sha256":  "975ca1de26024636154962155798bd25f5b32997dea3d85e1a16916ecd2d428a",
-    "notes":  "Crear orden con solo las actividades que faltan",
+    "versionCode":  10,
+    "versionName":  "1.9",
+    "apk":  "produccionhmi-10.apk",
+    "sha256":  "3dd2ad7ae0901a75ab323eba647c132b2018280f0fc3cc3eebee0c5df01786e6",
+    "notes":  "Inventario para el almacén y lector de códigos con la cámara",
     "forceUpdate":  false
 }
