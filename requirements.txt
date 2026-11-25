@@ -18,3 +18,4 @@ apscheduler
 tzdata
 
 boto3>=1.28.0
+python-barcode==0.15.1

@@ -124,6 +124,15 @@ def asegurar_schema_inventario(cursor):
             activo BOOLEAN DEFAULT TRUE,
             creado TIMESTAMP DEFAULT NOW()
         )""")
+    # Peso de una unidad: la tornillería se puede pesar en vez de contar
+    cursor.execute("ALTER TABLE inv_materiales ADD COLUMN IF NOT EXISTS peso_gr NUMERIC")
+    # Pesos de referencia (Excel de tornillería de febrero) para escoger el peso de cada material
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS inv_pesos_ref(
+            id SERIAL PRIMARY KEY,
+            nombre TEXT NOT NULL,
+            peso_gr NUMERIC NOT NULL
+        )""")
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS inv_movimientos(
             id SERIAL PRIMARY KEY,
@@ -234,7 +243,7 @@ def ver_inventario(request: Request):
     conn.commit()
     c.execute("""
         SELECT m.id, m.codigo, m.nombre, m.categoria, m.unidad, m.stock, m.stock_minimo, m.precio, m.ubicacion, m.nota,
-               (SELECT MAX(fecha) FROM inv_movimientos v WHERE v.material_id = m.id)
+               (SELECT MAX(fecha) FROM inv_movimientos v WHERE v.material_id = m.id), m.peso_gr
         FROM inv_materiales m WHERE COALESCE(m.activo, TRUE) = TRUE
         ORDER BY m.categoria, m.nombre
     """)
@@ -243,9 +252,12 @@ def ver_inventario(request: Request):
         "stock": r[5], "minimo": r[6], "precio": r[7], "ubicacion": r[8] or "", "nota": r[9] or "",
         "valor": (r[5] * r[7]) if (r[7] is not None and r[5] > 0) else None,
         "ultimo": r[10].strftime("%d/%m/%Y") if r[10] else "",
+        "peso": r[11],
         "bajo": r[6] is not None and r[5] <= r[6],
         "negativo": r[5] < 0,
     } for r in c.fetchall()]
+    c.execute("SELECT nombre, peso_gr FROM inv_pesos_ref ORDER BY nombre")
+    pesos_ref = [{"nombre": r[0], "peso": r[1]} for r in c.fetchall()]
     conn.close()
     por_cat = {}
     for m in materiales:
@@ -260,7 +272,7 @@ def ver_inventario(request: Request):
     categorias = [(cat, por_cat.get(cat, 0)) for cat in CATEGORIAS]
     return _plantilla(request, "inventario.html", {
         "materiales": materiales, "categorias": categorias, "lista_categorias": CATEGORIAS,
-        "resumen": resumen, "hoy": datetime.now(TZ).date().isoformat(), "pestana": "materiales",
+        "resumen": resumen, "hoy": datetime.now(TZ).date().isoformat(), "pestana": "materiales", "pesos_ref": pesos_ref,
     })
 
 
@@ -276,6 +288,7 @@ async def guardar_material(request: Request):
     unidad = (datos.get("unidad") or "und").strip()[:20] or "und"
     precio = _num(datos["precio"], "precio", positivo=False) if str(datos.get("precio") or "").strip() else None
     minimo = _num(datos["minimo"], "mínimo", positivo=False) if str(datos.get("minimo") or "").strip() else None
+    peso = _num(datos["peso"], "peso unitario") if str(datos.get("peso") or "").strip() else None
     ubicacion = (datos.get("ubicacion") or "").strip()[:80] or None
     nota = (datos.get("nota") or "").strip()[:200] or None
     conn = db()
@@ -284,15 +297,15 @@ async def guardar_material(request: Request):
     material_id = datos.get("id")
     if material_id:
         c.execute("""UPDATE inv_materiales SET nombre=%s, categoria=%s, unidad=%s, precio=%s, stock_minimo=%s,
-                     ubicacion=%s, nota=%s WHERE id=%s""",
-                  (nombre, categoria, unidad, precio, minimo, ubicacion, nota, int(material_id)))
+                     ubicacion=%s, nota=%s, peso_gr=%s WHERE id=%s""",
+                  (nombre, categoria, unidad, precio, minimo, ubicacion, nota, peso, int(material_id)))
     else:
         stock = _num(datos.get("stock") or 0, "stock inicial", positivo=False)
         c.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM inv_materiales")
         codigo = f"INV-{c.fetchone()[0]:04d}"
-        c.execute("""INSERT INTO inv_materiales (codigo, nombre, categoria, unidad, stock, precio, stock_minimo, ubicacion, nota)
-                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-                  (codigo, nombre, categoria, unidad, stock, precio, minimo, ubicacion, nota))
+        c.execute("""INSERT INTO inv_materiales (codigo, nombre, categoria, unidad, stock, precio, stock_minimo, ubicacion, nota, peso_gr)
+                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                  (codigo, nombre, categoria, unidad, stock, precio, minimo, ubicacion, nota, peso))
         material_id = c.fetchone()[0]
         if stock:
             c.execute("""INSERT INTO inv_movimientos (material_id, tipo, cantidad, stock_despues, precio, nota, usuario)
@@ -535,3 +548,43 @@ async def guardar_herramientas(request: Request):
     conn.commit()
     conn.close()
     return {"ok": True}
+
+
+# ===================== Etiquetas con código de barras =====================
+
+def codigo_barras_svg(codigo: str) -> str:
+    """Code 128 en SVG (lo lee cualquier pistola lectora). Se incrusta en la página, sin el encabezado XML."""
+    import barcode
+    from barcode.writer import SVGWriter
+    svg = barcode.get("code128", codigo, writer=SVGWriter()).render(
+        {"module_width": 0.33, "module_height": 11, "quiet_zone": 3, "write_text": False})
+    svg = svg.decode() if isinstance(svg, bytes) else svg
+    return svg[svg.index("<svg"):]
+
+
+@router.get("/inventario/etiquetas", response_class=HTMLResponse)
+def ver_etiquetas(request: Request, categoria: str = "", buscar: str = "", ids: str = ""):
+    """Hoja para imprimir: una etiqueta por material con nombre, código de barras y código."""
+    _permitido(request)
+    conn = db()
+    c = conn.cursor()
+    asegurar_schema_inventario(c)
+    conn.commit()
+    filtros, params = ["COALESCE(activo, TRUE) = TRUE"], []
+    lista_ids = [int(x) for x in ids.split(",") if x.strip().isdigit()]
+    if lista_ids:
+        filtros.append("id = ANY(%s)"); params.append(lista_ids)
+    if categoria in CATEGORIAS:
+        filtros.append("categoria = %s"); params.append(categoria)
+    if buscar.strip():
+        for palabra in buscar.split():
+            filtros.append("(nombre ILIKE %s OR codigo ILIKE %s)"); params += [f"%{palabra}%", f"%{palabra}%"]
+    c.execute(f"""SELECT id, codigo, nombre, categoria, ubicacion FROM inv_materiales
+                  WHERE {' AND '.join(filtros)} ORDER BY categoria, nombre LIMIT 600""", params)
+    etiquetas = [{"codigo": r[1], "nombre": r[2], "categoria": r[3], "ubicacion": r[4] or "",
+                  "barras": codigo_barras_svg(r[1])} for r in c.fetchall() if r[1]]
+    conn.close()
+    return _plantilla(request, "inventario_etiquetas.html", {
+        "etiquetas": etiquetas, "categoria": categoria, "buscar": buscar, "ids": ids,
+        "lista_categorias": CATEGORIAS, "pestana": "etiquetas",
+    })

@@ -27,6 +27,7 @@
         {{ item("/inventario/fundicion", "Fundición y mecanizado", none) }}
         {{ item("/inventario/movimientos", "Movimientos", none) }}
         {{ item("/inventario/herramientas", "Herramientas", none) }}
+        {{ item("/inventario/etiquetas", "Etiquetas", none) }}
         <a href="/logout" class="menu-salir">Salir</a>
         {% elif request and request.session.get("role") == "supervisor" %}
         <a href="/produccion_en_proceso">Producto en proceso</a>

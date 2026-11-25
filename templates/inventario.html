@@ -6,7 +6,10 @@
     <h1>Inventario de materiales</h1>
     <p>Lo que hay en el almacén. Registre aquí lo que entra (compras, llegadas) y lo que se entrega a producción.</p>
   </div>
-  <button class="btn btn-primary" id="btnNuevo">+ Material nuevo</button>
+  <div style="display:flex; gap:8px; flex-wrap:wrap">
+    <a class="btn btn-edit" id="btnEtiquetas" href="/inventario/etiquetas">🏷 Etiquetas</a>
+    <button class="btn btn-primary" id="btnNuevo">+ Material nuevo</button>
+  </div>
 </div>
 
 {% include "_inventario_tabs.html" %}
@@ -19,6 +22,12 @@
 </div>
 
 <div class="section" style="padding: 14px 14px 8px">
+  <form id="formEscaner" style="display:flex; gap:10px; align-items:center; margin-bottom:12px; background:#f0f7ec; border:2px dashed var(--primary); border-radius:12px; padding:10px 12px">
+    <span style="font-size:1.6rem" aria-hidden="true">▮▯▮▮▯</span>
+    <input id="escaner" autocomplete="off" autofocus placeholder="Escanee la etiqueta con la pistola (o escriba el código y Enter)"
+           style="flex:1; min-width:180px; padding:12px; border:1px solid var(--border-color); border-radius:10px; font-size:1.05rem">
+    <span class="error" id="escanerError" style="color:var(--danger); font-weight:600"></span>
+  </form>
   <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:12px">
     <input id="buscar" type="search" placeholder="Buscar material o código…" style="flex:1; min-width:220px; padding:10px 12px; border:1px solid var(--border-color); border-radius:10px">
     <select id="filtroCat" style="padding:10px 12px; border:1px solid var(--border-color); border-radius:10px">
@@ -44,12 +53,12 @@
         <tr data-id="{{ m.id }}" data-nombre="{{ m.nombre }}" data-cat="{{ m.categoria }}" data-codigo="{{ m.codigo }}"
             data-unidad="{{ m.unidad }}" data-precio="{{ m.precio if m.precio is not none else '' }}"
             data-minimo="{{ m.minimo if m.minimo is not none else '' }}" data-ubicacion="{{ m.ubicacion }}" data-nota="{{ m.nota }}"
-            data-stock="{{ m.stock }}" data-alerta="{{ 1 if (m.negativo or m.bajo) else 0 }}">
+            data-stock="{{ m.stock }}" data-alerta="{{ 1 if (m.negativo or m.bajo) else 0 }}" data-peso="{{ m.peso if m.peso is not none else '' }}">
           <td class="muted">{{ m.codigo }}</td>
           <td><b>{{ m.nombre }}</b>{% if m.ubicacion %}<br><small class="muted">📍 {{ m.ubicacion }}</small>{% endif %}
               {% if m.nota %}<br><small class="muted">{{ m.nota }}</small>{% endif %}</td>
           <td><small>{{ m.categoria }}</small></td>
-          <td class="num celStock {{ 'negativo' if m.negativo else ('bajo' if m.bajo else '') }}"><b>{{ fmt(m.stock) }}</b> <small class="muted">{{ m.unidad }}</small></td>
+          <td class="num celStock {{ 'negativo' if m.negativo else ('bajo' if m.bajo else '') }}"><b>{{ fmt(m.stock) }}</b> <small class="muted">{{ m.unidad }}</small>{% if m.peso %}<br><small class="muted" title="Peso de una unidad">⚖ {{ fmt(m.peso) }} g c/u</small>{% endif %}</td>
           <td class="num">{{ pesos(m.precio) if m.precio is not none else '—' }}</td>
           <td class="num">{{ pesos(m.valor) if m.valor else '' }}</td>
           <td><small class="muted">{{ m.ultimo }}</small></td>
@@ -58,6 +67,7 @@
             <button class="btn btn-outline-primary btnMov" data-tipo="entrega" title="Sale del almacén">− Entrega</button>
             <button class="btn btn-edit btnMov" data-tipo="ajuste" title="Contar lo que hay de verdad">Contar</button>
             <button class="btn btn-edit btnEditar" title="Editar datos del material">✎</button>
+            <a class="btn btn-edit" href="/inventario/etiquetas?ids={{ m.id }}" title="Imprimir su etiqueta">🏷</a>
             <a class="btn btn-edit" href="/inventario/movimientos?material={{ m.id }}" title="Historial">🕑</a>
           </td>
         </tr>
@@ -71,7 +81,15 @@
   <form method="dialog" id="formMov">
     <h2 id="movTitulo">Entrada</h2>
     <p class="sub" id="movMaterial"></p>
+    <div id="movTipos" style="display:none; gap:6px">
+      <button type="button" class="btn btn-success movTipo" data-tipo="entrada">+ Entrada</button>
+      <button type="button" class="btn btn-outline-primary movTipo" data-tipo="entrega">− Entrega</button>
+      <button type="button" class="btn btn-edit movTipo" data-tipo="ajuste">Contar</button>
+    </div>
+    <label id="movPesarFila" style="display:none; flex-wrap:wrap; align-items:center; gap:4px 8px; font-weight:600; background:#f0f7ec; padding:8px 10px; border-radius:10px">
+      <input type="checkbox" id="movPesar" style="width:auto; margin:0"> Pesar en vez de contar <small class="muted" id="movPesoUnit"></small></label>
     <label><span id="movLabelCant">Cantidad</span><input id="movCant" class="grande" inputmode="decimal" autocomplete="off" required></label>
+    <p class="sub" id="movEquivale" style="margin:-6px 0 0; font-weight:700; color:var(--primary)"></p>
     <div class="fila2" id="movFilaEntrada">
       <label>Precio unitario (opcional)<input id="movPrecio" inputmode="decimal" placeholder="Deje vacío para no cambiarlo"></label>
       <label>Fecha<input id="movFecha" type="date" value="{{ hoy }}"></label>
@@ -104,6 +122,10 @@
       <label id="matLabelStock">Stock inicial<input id="matStock" inputmode="decimal" value="0"></label>
       <label>Ubicación<input id="matUbicacion" placeholder="Ej.: estante 3"></label>
     </div>
+    <label>Peso de una unidad, en gramos (para pesar en vez de contar)
+      <input id="matPeso" inputmode="decimal" list="pesosRef" placeholder="Escriba o busque en la tabla de tornillería">
+      <small class="muted" style="font-weight:400">Al escribir, aparecen los pesos del Excel de tornillería de febrero; escoja el que corresponda.</small></label>
+    <datalist id="pesosRef">{% for p in pesos_ref %}<option value="{{ fmt(p.peso) }} g · {{ p.nombre }}">{% endfor %}</datalist>
     <label>Nota<input id="matNota"></label>
     <div class="error" id="matError"></div>
     <div class="botones">
@@ -143,42 +165,72 @@
 
   // ---- Movimientos ----
   const dlg = document.getElementById('dlgMov');
+  const $ = id => document.getElementById(id);
   let fila = null, tipo = '', forzar = false;
   const textos = {
     entrada: ['Entrada al almacén', 'Cantidad que llegó'],
     entrega: ['Entrega a producción', 'Cantidad que sale'],
     ajuste: ['Contar lo que hay', '¿Cuántos hay de verdad?'],
   };
-  document.querySelectorAll('.btnMov').forEach(b => b.addEventListener('click', () => {
-    fila = b.closest('tr'); tipo = b.dataset.tipo; forzar = false;
-    document.getElementById('movTitulo').textContent = textos[tipo][0];
-    document.getElementById('movLabelCant').textContent = textos[tipo][1] + ' (' + fila.dataset.unidad + ')';
-    document.getElementById('movMaterial').textContent = fila.dataset.nombre + ' · hay ' + fila.querySelector('.celStock b').textContent;
-    document.getElementById('movFilaEntrada').style.display = '';
-    document.getElementById('movPrecio').parentElement.style.display = tipo === 'entrada' ? '' : 'none';
-    document.getElementById('movLabelDestino').style.display = tipo === 'entrega' ? '' : 'none';
-    ['movCant', 'movPrecio', 'movDestino', 'movNota'].forEach(id => document.getElementById(id).value = '');
-    if (tipo === 'ajuste') document.getElementById('movCant').value = fila.dataset.stock.replace(/\.0+$/, '');
-    document.getElementById('movError').textContent = '';
-    document.getElementById('movGuardar').textContent = 'Guardar';
+  const pesoUnidad = () => Number(fila && fila.dataset.peso) || 0;
+  // Con «Pesar», la cantidad escrita son gramos y se convierte a unidades con el peso de una unidad
+  function unidades() {
+    const v = Number(String($('movCant').value).replace(',', '.'));
+    if (!$('movPesar').checked) return $('movCant').value;
+    return pesoUnidad() && v > 0 ? String(Math.round(v / pesoUnidad())) : '';
+  }
+  function equivalencia() {
+    const u = unidades();
+    $('movEquivale').textContent = $('movPesar').checked && u ? '≈ ' + Number(u).toLocaleString('es-CO') + ' ' + fila.dataset.unidad : '';
+  }
+  function ponerTipo(t) {
+    tipo = t; forzar = false;
+    $('movTitulo').textContent = textos[tipo][0];
+    $('movPrecio').parentElement.style.display = tipo === 'entrada' ? '' : 'none';
+    $('movLabelDestino').style.display = tipo === 'entrega' ? '' : 'none';
+    document.querySelectorAll('.movTipo').forEach(b => b.style.outline = b.dataset.tipo === tipo ? '3px solid var(--primary)' : '');
+    $('movPesar').checked = false;
+    etiquetaCantidad();
+    $('movCant').value = tipo === 'ajuste' ? fila.dataset.stock.replace(/\.0+$/, '') : '';
+    $('movError').textContent = ''; $('movGuardar').textContent = 'Guardar';
+    equivalencia();
+  }
+  function etiquetaCantidad() {
+    $('movLabelCant').textContent = $('movPesar').checked ? 'Peso en la báscula (gramos)' : textos[tipo][1] + ' (' + fila.dataset.unidad + ')';
+  }
+  function abrirMov(f, t, desdeEscaner) {
+    fila = f;
+    $('movMaterial').textContent = fila.dataset.codigo + ' · ' + fila.dataset.nombre + ' · hay ' + fila.querySelector('.celStock b').textContent + ' ' + fila.dataset.unidad;
+    $('movTipos').style.display = desdeEscaner ? 'flex' : 'none';
+    $('movPesarFila').style.display = pesoUnidad() ? 'flex' : 'none';
+    $('movPesoUnit').textContent = pesoUnidad() ? '(' + pesoUnidad().toLocaleString('es-CO') + ' g cada uno)' : '';
+    ['movPrecio', 'movDestino', 'movNota'].forEach(id => $(id).value = '');
+    ponerTipo(t);
     dlg.showModal();
-    document.getElementById('movCant').select();
-  }));
-  document.getElementById('movCancelar').onclick = () => dlg.close();
-  document.getElementById('formMov').addEventListener('submit', async e => {
+    $('movCant').select();
+  }
+  document.querySelectorAll('.btnMov').forEach(b => b.addEventListener('click', () => abrirMov(b.closest('tr'), b.dataset.tipo, false)));
+  document.querySelectorAll('.movTipo').forEach(b => b.addEventListener('click', () => { ponerTipo(b.dataset.tipo); $('movCant').focus(); }));
+  $('movPesar').addEventListener('change', () => { etiquetaCantidad(); $('movCant').value = ''; equivalencia(); $('movCant').focus(); });
+  $('movCant').addEventListener('input', equivalencia);
+  $('movCancelar').onclick = () => dlg.close();
+  dlg.addEventListener('close', () => { $('escaner').value = ''; $('escaner').focus(); });
+  $('formMov').addEventListener('submit', async e => {
     e.preventDefault();
+    const cantidad = unidades();
+    if (!cantidad) { $('movError').textContent = 'Escriba ' + ($('movPesar').checked ? 'el peso' : 'la cantidad'); return; }
+    const nota = [$('movNota').value, $('movPesar').checked ? 'Pesado: ' + $('movCant').value + ' g' : ''].filter(Boolean).join(' · ');
     const r = await invPost('/inventario/movimiento', {
-      tipo, material_id: fila.dataset.id, cantidad: document.getElementById('movCant').value,
-      precio: document.getElementById('movPrecio').value, destino: document.getElementById('movDestino').value,
-      nota: document.getElementById('movNota').value, fecha: document.getElementById('movFecha').value, forzar,
+      tipo, material_id: fila.dataset.id, cantidad, precio: $('movPrecio').value, destino: $('movDestino').value,
+      nota, fecha: $('movFecha').value, forzar,
     });
     if (r.estado === 409) {  // entrega mayor que el stock: se puede confirmar
       forzar = true;
-      document.getElementById('movError').textContent = r.error;
-      document.getElementById('movGuardar').textContent = 'Sí, entregar';
+      $('movError').textContent = r.error;
+      $('movGuardar').textContent = 'Sí, entregar';
       return;
     }
-    if (!r.ok) { document.getElementById('movError').textContent = r.error; return; }
+    if (!r.ok) { $('movError').textContent = r.error; return; }
     const celda = fila.querySelector('.celStock');
     celda.querySelector('b').textContent = r.datos.stock;
     fila.dataset.stock = r.datos.stock.replace(/\./g, '').replace(',', '.');
@@ -186,6 +238,25 @@
     celda.style.background = '#dcfce7';
     setTimeout(() => celda.style.background = '', 1500);
     dlg.close();
+  });
+
+  // ---- Pistola lectora: escribe el código y da Enter ----
+  $('formEscaner').addEventListener('submit', e => {
+    e.preventDefault();
+    const codigo = $('escaner').value.trim().toUpperCase();
+    if (!codigo) return;
+    const f = filas.find(x => x.dataset.codigo.toUpperCase() === codigo);
+    if (!f) { $('escanerError').textContent = 'No hay ningún material con el código ' + codigo; $('escaner').select(); return; }
+    $('escanerError').textContent = '';
+    abrirMov(f, 'entrega', true);
+  });
+
+  // El botón de etiquetas imprime lo que se está viendo (misma búsqueda y categoría)
+  $('btnEtiquetas').addEventListener('click', e => {
+    const q = new URLSearchParams();
+    if (filtroCat.value) q.set('categoria', filtroCat.value);
+    if (buscar.value.trim()) q.set('buscar', buscar.value.trim());
+    e.currentTarget.href = '/inventario/etiquetas' + (q.toString() ? '?' + q : '');
   });
 
   // ---- Material nuevo / editar ----
@@ -201,6 +272,7 @@
     document.getElementById('matMinimo').value = f ? f.dataset.minimo : '';
     document.getElementById('matUbicacion').value = f ? f.dataset.ubicacion : '';
     document.getElementById('matNota').value = f ? f.dataset.nota : '';
+    document.getElementById('matPeso').value = f && f.dataset.peso ? f.dataset.peso : '';
     document.getElementById('matStock').value = '0';
     document.getElementById('matLabelStock').style.display = f ? 'none' : '';
     document.getElementById('matArchivar').style.display = f ? '' : 'none';
@@ -223,6 +295,7 @@
       unidad: document.getElementById('matUnidad').value, precio: document.getElementById('matPrecio').value,
       minimo: document.getElementById('matMinimo').value, stock: document.getElementById('matStock').value,
       ubicacion: document.getElementById('matUbicacion').value, nota: document.getElementById('matNota').value,
+      peso: (document.getElementById('matPeso').value.match(/[\d.,]+/) || [''])[0].replace(/\.(?=\d{3})/g, '').replace(',', '.'),
     });
     if (r.ok) location.reload(); else document.getElementById('matError').textContent = r.error;
   });

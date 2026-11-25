@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+
+{% block content %}
+<style>
+  /* Hoja carta con etiquetas de 3 columnas; al imprimir solo salen las etiquetas */
+  .hoja { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; background: #fff; border: 1px solid var(--border-color); }
+  .etq { border: 1px dashed #cbd5c4; padding: 3mm 3mm 2mm; height: 38mm; display: flex; flex-direction: column;
+    justify-content: space-between; overflow: hidden; break-inside: avoid; }
+  .etq-nombre { font-weight: 700; font-size: 9pt; line-height: 1.15; max-height: 3.5em; overflow: hidden; color: #111; }
+  .etq-barras svg { display: block; margin: 0 auto; max-width: 100%; }
+  .etq-pie { display: flex; justify-content: space-between; align-items: baseline; font-size: 8pt; color: #333; }
+  .etq-pie b { font-family: ui-monospace, Consolas, monospace; font-size: 10pt; letter-spacing: .5px; color: #000; }
+  .controles { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; margin-bottom: 16px; }
+  .controles label { display: grid; gap: 4px; font-weight: 600; font-size: .88rem; }
+  .controles input, .controles select { padding: 9px 12px; border: 1px solid var(--border-color); border-radius: 10px; }
+  @media print {
+    @page { size: letter; margin: 8mm; }
+    .header, .page-title, .inv-tabs, .controles, .no-imprimir { display: none !important; }
+    body, .container { background: #fff !important; padding: 0 !important; margin: 0 !important; max-width: none !important; }
+    .hoja { border: none; }
+    .etq { border: 1px dashed #bbb; }
+  }
+</style>
+
+<div class="page-title">
+  <div>
+    <a class="volver" href="/inventario">&larr; Materiales</a>
+    <h1>Etiquetas con código de barras</h1>
+    <p>Imprima y pegue cada etiqueta en su caja o estante. La pistola lectora lee el código y abre el material en el inventario.</p>
+  </div>
+  <button class="btn btn-primary no-imprimir" onclick="window.print()" {% if not etiquetas %}disabled{% endif %}>🖨 Imprimir {{ etiquetas|length }} etiqueta{{ 's' if etiquetas|length != 1 }}</button>
+</div>
+
+{% include "_inventario_tabs.html" %}
+
+<form class="controles" method="get">
+  <label>Categoría
+    <select name="categoria">
+      <option value="">Todas</option>
+      {% for cat in lista_categorias %}<option {% if categoria == cat %}selected{% endif %}>{{ cat }}</option>{% endfor %}
+    </select></label>
+  <label>Buscar<input name="buscar" value="{{ buscar }}" placeholder="Ej.: tuerca 3/8"></label>
+  <button class="btn btn-edit">Ver</button>
+  {% if categoria or buscar or ids %}<a class="btn btn-edit" href="/inventario/etiquetas">Quitar filtros</a>{% endif %}
+</form>
+
+{% if not etiquetas %}
+  <div class="vacio"><div class="vacio-icono">🏷️</div><h2>Ningún material con esos filtros</h2><p>Cambie la categoría o la búsqueda.</p></div>
+{% else %}
+  {% if etiquetas|length == 600 %}<p class="ayuda no-imprimir">Se muestran las primeras 600. Filtre por categoría para imprimir el resto.</p>{% endif %}
+  <div class="hoja">
+    {% for e in etiquetas %}
+      <div class="etq">
+        <div class="etq-nombre">{{ e.nombre }}</div>
+        <div class="etq-barras">{{ e.barras|safe }}</div>
+        <div class="etq-pie"><b>{{ e.codigo }}</b><span>{{ e.ubicacion or e.categoria }}</span></div>
+      </div>
+    {% endfor %}
+  </div>
+{% endif %}
+{% endblock %}
