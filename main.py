@@ -138,6 +138,10 @@ async def proteger_rutas_administrativas(request: Request, call_next):
         if (path in RUTAS_SUPERVISOR and request.session.get("username")
                 and request.session.get("role") == "supervisor"):
             return await call_next(request)
+        # Perfil de inventario (Carlos): solo las páginas de inventario
+        if ((path == "/inventario" or path.startswith("/inventario/")) and request.session.get("username")
+                and request.session.get("role") == "inventario"):
+            return await call_next(request)
         if request.method in ("GET", "HEAD"):
             destino = path.strip("/") or ""
             return RedirectResponse(f"/admin?next={destino}", status_code=303)
@@ -362,6 +366,8 @@ def startup():
     c.execute("ALTER TABLE actividades ADD COLUMN IF NOT EXISTS herramienta TEXT")
     c.execute("ALTER TABLE actividades ADD COLUMN IF NOT EXISTS operario_responsable_id INTEGER")
     asegurar_schema_cortes(c)
+    from routers.inventario import asegurar_schema_inventario
+    asegurar_schema_inventario(c)
 
     c.execute("""
     CREATE TABLE IF NOT EXISTS tickets(

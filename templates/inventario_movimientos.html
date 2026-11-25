@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-title">
+  <div>
+    {% if material %}<a class="volver" href="/inventario">&larr; Materiales</a>{% endif %}
+    <h1>{% if material %}Historial: {{ nombre_material }}{% else %}Movimientos del almacén{% endif %}</h1>
+    <p>Cada entrada, entrega o conteo queda aquí con el stock que quedó después.</p>
+  </div>
+</div>
+
+{% include "_inventario_tabs.html" %}
+
+<form class="section" method="get" style="padding:14px; display:flex; gap:10px; flex-wrap:wrap; align-items:end">
+  {% if material %}<input type="hidden" name="material" value="{{ material }}">{% endif %}
+  <label style="display:grid; gap:4px; font-weight:600; font-size:.88rem">Tipo
+    <select name="tipo" style="padding:9px 12px; border:1px solid var(--border-color); border-radius:10px">
+      <option value="">Todos</option>
+      {% for k, v in tipos.items() %}<option value="{{ k }}" {% if tipo == k %}selected{% endif %}>{{ v }}</option>{% endfor %}
+    </select></label>
+  <label style="display:grid; gap:4px; font-weight:600; font-size:.88rem">Desde
+    <input type="date" name="desde" value="{{ desde }}" style="padding:8px 12px; border:1px solid var(--border-color); border-radius:10px"></label>
+  <label style="display:grid; gap:4px; font-weight:600; font-size:.88rem">Hasta
+    <input type="date" name="hasta" value="{{ hasta }}" style="padding:8px 12px; border:1px solid var(--border-color); border-radius:10px"></label>
+  <button class="btn btn-primary">Filtrar</button>
+  {% if tipo or desde or hasta %}<a class="btn btn-edit" href="/inventario/movimientos{% if material %}?material={{ material }}{% endif %}">Quitar filtros</a>{% endif %}
+</form>
+
+{% if not movs %}
+  <div class="vacio" style="margin-top:16px"><div class="vacio-icono">📦</div><h2>Sin movimientos</h2><p>Todavía no hay entradas ni entregas con esos filtros.</p></div>
+{% else %}
+<div class="section" style="padding:8px; margin-top:16px">
+  <div class="table-container" style="overflow-x:auto">
+    <table class="data-table">
+      <thead><tr><th>Fecha</th>{% if not material %}<th>Material</th>{% endif %}<th>Tipo</th><th class="num">Cantidad</th>
+        <th class="num">Quedó</th><th>A quién / para qué</th><th>Nota</th><th>Registró</th></tr></thead>
+      <tbody>
+      {% for m in movs %}
+        <tr>
+          <td>{{ m.fecha }}</td>
+          {% if not material %}<td><a href="/inventario/movimientos?material={{ m.material_id }}">{{ m.material }}</a></td>{% endif %}
+          <td>{{ m.tipo }}</td>
+          <td class="num {{ 'negativo' if m.cantidad < 0 else '' }}"><b>{{ '+' if m.cantidad > 0 else '' }}{{ fmt(m.cantidad) }}</b> <small class="muted">{{ m.unidad }}</small>
+            {% if m.precio is not none %}<br><small class="muted">{{ pesos(m.precio) }} c/u</small>{% endif %}</td>
+          <td class="num">{{ fmt(m.stock) }}</td>
+          <td>{{ m.destino }}</td>
+          <td><small>{{ m.nota }}</small></td>
+          <td><small class="muted">{{ m.usuario }}</small></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if movs|length == 500 %}<p class="ayuda" style="margin:10px">Se muestran los últimos 500. Use las fechas para ver otros.</p>{% endif %}
+</div>
+{% endif %}
+{% endblock %}

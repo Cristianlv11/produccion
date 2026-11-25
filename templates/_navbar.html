@@ -19,7 +19,14 @@
         {{ item("/produccion_en_proceso", "En proceso", none) }}
         {{ item("/metricas_operarios", "Métricas", ["/metricas"]) }}
         {{ item("/bonos", "Bonos", ["/bonos"]) }}
+        {{ item("/inventario", "Inventario", ["/inventario"]) }}
         {{ item("/configuracion", "Configuración", ["/configuracion", "/admin_tools"]) }}
+        <a href="/logout" class="menu-salir">Salir</a>
+        {% elif request and request.session.get("role") == "inventario" %}
+        {{ item("/inventario", "Materiales", none) }}
+        {{ item("/inventario/fundicion", "Fundición y mecanizado", none) }}
+        {{ item("/inventario/movimientos", "Movimientos", none) }}
+        {{ item("/inventario/herramientas", "Herramientas", none) }}
         <a href="/logout" class="menu-salir">Salir</a>
         {% elif request and request.session.get("role") == "supervisor" %}
         <a href="/produccion_en_proceso">Producto en proceso</a>

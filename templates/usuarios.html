@@ -65,6 +65,7 @@
                                 <select class="form-select" name="role" id="selRol">
                                     <option value="operario" selected>Operario</option>
                                     <option value="supervisor">Supervisor (registra por cortes en la app)</option>
+                                    <option value="inventario">Inventario (almacén)</option>
                                     <option value="jefe_tickets">Jefe de Tickets</option>
                                     <option value="admin">Admin</option>
                                 </select>
@@ -157,6 +158,8 @@
                                     <span class="badge bg-info text-dark">Jefe Tickets</span>
                                 {% elif u[2] == 'supervisor' %}
                                     <span class="badge bg-primary">Supervisor</span>
+                                {% elif u[2] == 'inventario' %}
+                                    <span class="badge bg-success">Inventario</span>
                                 {% else %}
                                     <span class="badge bg-secondary">Operario</span>
                                 {% endif %}

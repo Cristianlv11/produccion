@@ -1,0 +1,39 @@
+{# Pestañas del inventario (el rol inventario ya las tiene en el menú; el admin las ve aquí) #}
+<style>
+  .inv-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: -8px 0 18px; }
+  .inv-tabs a { padding: 8px 14px; border-radius: 999px; text-decoration: none; color: var(--text-muted); background: #fff;
+    border: 1px solid var(--border-color); font-weight: 600; font-size: 0.9rem; }
+  .inv-tabs a.activo { background: var(--primary); color: #fff; border-color: var(--primary); }
+  .inv-dialog { margin: auto; border: none; border-radius: 16px; padding: 0; width: min(460px, calc(100vw - 32px)); box-shadow: 0 24px 60px rgba(0,0,0,.25); }
+  .inv-dialog::backdrop { background: rgba(15,23,42,.55); }
+  .inv-dialog form { padding: 22px 22px 18px; display: grid; gap: 12px; }
+  .inv-dialog h2 { margin: 0; font-size: 1.2rem; }
+  .inv-dialog .sub { margin: -6px 0 2px; color: var(--text-muted); font-size: .9rem; }
+  .inv-dialog label { display: grid; gap: 4px; font-weight: 600; font-size: .88rem; color: var(--text-main); }
+  .inv-dialog input, .inv-dialog select, .inv-dialog textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--border-color);
+    border-radius: 10px; font: inherit; font-weight: 400; }
+  .inv-dialog .grande { font-size: 1.6rem; font-weight: 800; text-align: center; }
+  .inv-dialog .fila2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .inv-dialog .botones { display: flex; gap: 10px; justify-content: flex-end; margin-top: 4px; }
+  .inv-dialog .error { color: var(--danger); font-size: .9rem; min-height: 1em; }
+  .num { text-align: right; white-space: nowrap; }
+  .negativo { color: var(--danger); font-weight: 700; }
+  .bajo { color: var(--warning); font-weight: 700; }
+</style>
+{% if request.session.get("role") == "admin" %}
+<nav class="inv-tabs" aria-label="Secciones del inventario">
+  <a href="/inventario" {% if pestana == 'materiales' %}class="activo"{% endif %}>Materiales</a>
+  <a href="/inventario/fundicion" {% if pestana == 'fundicion' %}class="activo"{% endif %}>Fundición y mecanizado</a>
+  <a href="/inventario/movimientos" {% if pestana == 'movimientos' %}class="activo"{% endif %}>Movimientos</a>
+  <a href="/inventario/herramientas" {% if pestana == 'herramientas' %}class="activo"{% endif %}>Herramientas</a>
+</nav>
+{% endif %}
+<script>
+  // Envía JSON y devuelve {ok, datos, estado}; los errores del servidor vienen en «detail»
+  async function invPost(url, datos) {
+    const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(datos) });
+    let j = {};
+    try { j = await r.json(); } catch (e) {}
+    return { ok: r.ok, estado: r.status, datos: j, error: j.detail || (r.ok ? '' : 'No se pudo guardar (' + r.status + ')') };
+  }
+</script>

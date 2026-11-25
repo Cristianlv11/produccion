@@ -16,6 +16,7 @@ def admin(request: Request):
         if role == "admin": return RedirectResponse("/", status_code=303)
         elif role == "jefe_tickets": return RedirectResponse("/tickets/admin", status_code=303)
         elif role == "operario": return RedirectResponse("/inicio_operario", status_code=303)
+        elif role == "inventario": return RedirectResponse("/inventario", status_code=303)
         return RedirectResponse("/", status_code=303)
         
     return templates.TemplateResponse(
@@ -40,6 +41,8 @@ def admin_post(request: Request, user: str = Form(...), password: str = Form(...
                 next_page = "/inicio_operario"
             elif role == "supervisor":
                 next_page = "/produccion_en_proceso"
+            elif role == "inventario":
+                next_page = "/inventario"
             else:
                 next_page = "/"
 

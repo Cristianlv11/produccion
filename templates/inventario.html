@@ -1,0 +1,231 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-title">
+  <div>
+    <h1>Inventario de materiales</h1>
+    <p>Lo que hay en el almacén. Registre aquí lo que entra (compras, llegadas) y lo que se entrega a producción.</p>
+  </div>
+  <button class="btn btn-primary" id="btnNuevo">+ Material nuevo</button>
+</div>
+
+{% include "_inventario_tabs.html" %}
+
+<div class="kpi-grid">
+  <div class="kpi-card"><div class="kpi-title">Materiales</div><div class="kpi-value">{{ fmt(resumen.total) }}</div></div>
+  <div class="kpi-card"><div class="kpi-title">Valor del inventario</div><div class="kpi-value success">{{ pesos(resumen.valor) }}</div></div>
+  <div class="kpi-card" title="Sin precio no suman al valor del inventario"><div class="kpi-title">Sin precio</div><div class="kpi-value warning">{{ resumen.sin_precio }}</div></div>
+  <div class="kpi-card"><div class="kpi-title">En negativo o bajo el mínimo</div><div class="kpi-value {{ 'danger' if (resumen.negativos + resumen.bajos) else '' }}">{{ resumen.negativos + resumen.bajos }}</div></div>
+</div>
+
+<div class="section" style="padding: 14px 14px 8px">
+  <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:12px">
+    <input id="buscar" type="search" placeholder="Buscar material o código…" style="flex:1; min-width:220px; padding:10px 12px; border:1px solid var(--border-color); border-radius:10px">
+    <select id="filtroCat" style="padding:10px 12px; border:1px solid var(--border-color); border-radius:10px">
+      <option value="">Todas las categorías</option>
+      {% for cat, n in categorias %}{% if n %}<option value="{{ cat }}">{{ cat }} ({{ n }})</option>{% endif %}{% endfor %}
+    </select>
+    <select id="filtroEstado" style="padding:10px 12px; border:1px solid var(--border-color); border-radius:10px">
+      <option value="">Todo el stock</option>
+      <option value="alerta">Negativos o bajo el mínimo</option>
+      <option value="cero">Agotados (0)</option>
+      <option value="sinprecio">Sin precio</option>
+    </select>
+  </div>
+  <p class="ayuda" id="contador" style="margin:0 0 8px"></p>
+  <div class="table-container" style="overflow-x:auto">
+    <table class="data-table" id="tabla">
+      <thead><tr>
+        <th>Código</th><th>Material</th><th>Categoría</th><th class="num">Stock</th><th class="num">Precio</th>
+        <th class="num">Valor</th><th>Último mov.</th><th></th>
+      </tr></thead>
+      <tbody>
+      {% for m in materiales %}
+        <tr data-id="{{ m.id }}" data-nombre="{{ m.nombre }}" data-cat="{{ m.categoria }}" data-codigo="{{ m.codigo }}"
+            data-unidad="{{ m.unidad }}" data-precio="{{ m.precio if m.precio is not none else '' }}"
+            data-minimo="{{ m.minimo if m.minimo is not none else '' }}" data-ubicacion="{{ m.ubicacion }}" data-nota="{{ m.nota }}"
+            data-stock="{{ m.stock }}" data-alerta="{{ 1 if (m.negativo or m.bajo) else 0 }}">
+          <td class="muted">{{ m.codigo }}</td>
+          <td><b>{{ m.nombre }}</b>{% if m.ubicacion %}<br><small class="muted">📍 {{ m.ubicacion }}</small>{% endif %}
+              {% if m.nota %}<br><small class="muted">{{ m.nota }}</small>{% endif %}</td>
+          <td><small>{{ m.categoria }}</small></td>
+          <td class="num celStock {{ 'negativo' if m.negativo else ('bajo' if m.bajo else '') }}"><b>{{ fmt(m.stock) }}</b> <small class="muted">{{ m.unidad }}</small></td>
+          <td class="num">{{ pesos(m.precio) if m.precio is not none else '—' }}</td>
+          <td class="num">{{ pesos(m.valor) if m.valor else '' }}</td>
+          <td><small class="muted">{{ m.ultimo }}</small></td>
+          <td style="white-space:nowrap">
+            <button class="btn btn-success btnMov" data-tipo="entrada" title="Llegó material">+ Entrada</button>
+            <button class="btn btn-outline-primary btnMov" data-tipo="entrega" title="Sale del almacén">− Entrega</button>
+            <button class="btn btn-edit btnMov" data-tipo="ajuste" title="Contar lo que hay de verdad">Contar</button>
+            <button class="btn btn-edit btnEditar" title="Editar datos del material">✎</button>
+            <a class="btn btn-edit" href="/inventario/movimientos?material={{ m.id }}" title="Historial">🕑</a>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<dialog class="inv-dialog" id="dlgMov">
+  <form method="dialog" id="formMov">
+    <h2 id="movTitulo">Entrada</h2>
+    <p class="sub" id="movMaterial"></p>
+    <label><span id="movLabelCant">Cantidad</span><input id="movCant" class="grande" inputmode="decimal" autocomplete="off" required></label>
+    <div class="fila2" id="movFilaEntrada">
+      <label>Precio unitario (opcional)<input id="movPrecio" inputmode="decimal" placeholder="Deje vacío para no cambiarlo"></label>
+      <label>Fecha<input id="movFecha" type="date" value="{{ hoy }}"></label>
+    </div>
+    <label id="movLabelDestino">¿A quién o para qué?<input id="movDestino" list="destinos" placeholder="Ej.: Felipe, armado de módulos"></label>
+    <datalist id="destinos"><option value="Producción"><option value="Armado"><option value="Soldadura"><option value="Pintura"><option value="Corte láser"><option value="Doblez"></datalist>
+    <label>Nota (opcional)<input id="movNota" placeholder="Ej.: factura 1234, orden 18"></label>
+    <div class="error" id="movError"></div>
+    <div class="botones">
+      <button type="button" class="btn btn-edit" id="movCancelar">Cancelar</button>
+      <button type="submit" class="btn btn-primary" id="movGuardar">Guardar</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog class="inv-dialog" id="dlgMat">
+  <form method="dialog" id="formMat">
+    <h2 id="matTitulo">Material nuevo</h2>
+    <label>Nombre<input id="matNombre" required></label>
+    <div class="fila2">
+      <label>Categoría<select id="matCat">{% for cat in lista_categorias %}<option>{{ cat }}</option>{% endfor %}</select></label>
+      <label>Unidad<input id="matUnidad" list="unidades" value="und"></label>
+    </div>
+    <datalist id="unidades"><option value="und"><option value="kg"><option value="m"><option value="lámina"><option value="galón"><option value="caja"><option value="rollo"></datalist>
+    <div class="fila2">
+      <label>Precio unitario<input id="matPrecio" inputmode="decimal"></label>
+      <label>Stock mínimo<input id="matMinimo" inputmode="decimal" placeholder="Avisa cuando baje"></label>
+    </div>
+    <div class="fila2">
+      <label id="matLabelStock">Stock inicial<input id="matStock" inputmode="decimal" value="0"></label>
+      <label>Ubicación<input id="matUbicacion" placeholder="Ej.: estante 3"></label>
+    </div>
+    <label>Nota<input id="matNota"></label>
+    <div class="error" id="matError"></div>
+    <div class="botones">
+      <button type="button" class="btn btn-outline-danger" id="matArchivar" style="margin-right:auto">Quitar de la lista</button>
+      <button type="button" class="btn btn-edit" id="matCancelar">Cancelar</button>
+      <button type="submit" class="btn btn-primary">Guardar</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+(function () {
+  const filas = [...document.querySelectorAll('#tabla tbody tr')];
+  const buscar = document.getElementById('buscar'), filtroCat = document.getElementById('filtroCat'), filtroEstado = document.getElementById('filtroEstado');
+  const sinTildes = t => (t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  function filtrar() {
+    const q = sinTildes(buscar.value).split(/\s+/).filter(Boolean), cat = filtroCat.value, est = filtroEstado.value;
+    let n = 0;
+    for (const f of filas) {
+      const texto = sinTildes(f.dataset.nombre + ' ' + f.dataset.codigo);
+      let ver = q.every(p => texto.includes(p)) && (!cat || f.dataset.cat === cat);
+      if (ver && est === 'alerta') ver = f.dataset.alerta === '1';
+      if (ver && est === 'cero') ver = Number(f.dataset.stock) === 0;
+      if (ver && est === 'sinprecio') ver = f.dataset.precio === '';
+      f.style.display = ver ? '' : 'none';
+      if (ver) n++;
+    }
+    document.getElementById('contador').textContent = n === filas.length ? `${n} materiales` : `${n} de ${filas.length} materiales`;
+    try { localStorage.setItem('invFiltros', JSON.stringify({ q: buscar.value, cat, est })); } catch (e) {}
+  }
+  try {
+    const g = JSON.parse(localStorage.getItem('invFiltros') || '{}');
+    buscar.value = g.q || ''; filtroCat.value = g.cat || ''; filtroEstado.value = g.est || '';
+  } catch (e) {}
+  [buscar, filtroCat, filtroEstado].forEach(el => el.addEventListener('input', filtrar));
+  filtrar();
+
+  // ---- Movimientos ----
+  const dlg = document.getElementById('dlgMov');
+  let fila = null, tipo = '', forzar = false;
+  const textos = {
+    entrada: ['Entrada al almacén', 'Cantidad que llegó'],
+    entrega: ['Entrega a producción', 'Cantidad que sale'],
+    ajuste: ['Contar lo que hay', '¿Cuántos hay de verdad?'],
+  };
+  document.querySelectorAll('.btnMov').forEach(b => b.addEventListener('click', () => {
+    fila = b.closest('tr'); tipo = b.dataset.tipo; forzar = false;
+    document.getElementById('movTitulo').textContent = textos[tipo][0];
+    document.getElementById('movLabelCant').textContent = textos[tipo][1] + ' (' + fila.dataset.unidad + ')';
+    document.getElementById('movMaterial').textContent = fila.dataset.nombre + ' · hay ' + fila.querySelector('.celStock b').textContent;
+    document.getElementById('movFilaEntrada').style.display = '';
+    document.getElementById('movPrecio').parentElement.style.display = tipo === 'entrada' ? '' : 'none';
+    document.getElementById('movLabelDestino').style.display = tipo === 'entrega' ? '' : 'none';
+    ['movCant', 'movPrecio', 'movDestino', 'movNota'].forEach(id => document.getElementById(id).value = '');
+    if (tipo === 'ajuste') document.getElementById('movCant').value = fila.dataset.stock.replace(/\.0+$/, '');
+    document.getElementById('movError').textContent = '';
+    document.getElementById('movGuardar').textContent = 'Guardar';
+    dlg.showModal();
+    document.getElementById('movCant').select();
+  }));
+  document.getElementById('movCancelar').onclick = () => dlg.close();
+  document.getElementById('formMov').addEventListener('submit', async e => {
+    e.preventDefault();
+    const r = await invPost('/inventario/movimiento', {
+      tipo, material_id: fila.dataset.id, cantidad: document.getElementById('movCant').value,
+      precio: document.getElementById('movPrecio').value, destino: document.getElementById('movDestino').value,
+      nota: document.getElementById('movNota').value, fecha: document.getElementById('movFecha').value, forzar,
+    });
+    if (r.estado === 409) {  // entrega mayor que el stock: se puede confirmar
+      forzar = true;
+      document.getElementById('movError').textContent = r.error;
+      document.getElementById('movGuardar').textContent = 'Sí, entregar';
+      return;
+    }
+    if (!r.ok) { document.getElementById('movError').textContent = r.error; return; }
+    const celda = fila.querySelector('.celStock');
+    celda.querySelector('b').textContent = r.datos.stock;
+    fila.dataset.stock = r.datos.stock.replace(/\./g, '').replace(',', '.');
+    celda.classList.toggle('negativo', Number(fila.dataset.stock) < 0);
+    celda.style.background = '#dcfce7';
+    setTimeout(() => celda.style.background = '', 1500);
+    dlg.close();
+  });
+
+  // ---- Material nuevo / editar ----
+  const dlgMat = document.getElementById('dlgMat');
+  let editando = null;
+  function abrirMaterial(f) {
+    editando = f;
+    document.getElementById('matTitulo').textContent = f ? 'Editar material' : 'Material nuevo';
+    document.getElementById('matNombre').value = f ? f.dataset.nombre : '';
+    document.getElementById('matCat').value = f ? f.dataset.cat : 'Otros';
+    document.getElementById('matUnidad').value = f ? f.dataset.unidad : 'und';
+    document.getElementById('matPrecio').value = f ? f.dataset.precio : '';
+    document.getElementById('matMinimo').value = f ? f.dataset.minimo : '';
+    document.getElementById('matUbicacion').value = f ? f.dataset.ubicacion : '';
+    document.getElementById('matNota').value = f ? f.dataset.nota : '';
+    document.getElementById('matStock').value = '0';
+    document.getElementById('matLabelStock').style.display = f ? 'none' : '';
+    document.getElementById('matArchivar').style.display = f ? '' : 'none';
+    document.getElementById('matError').textContent = '';
+    dlgMat.showModal();
+  }
+  document.getElementById('btnNuevo').onclick = () => abrirMaterial(null);
+  document.querySelectorAll('.btnEditar').forEach(b => b.addEventListener('click', () => abrirMaterial(b.closest('tr'))));
+  document.getElementById('matCancelar').onclick = () => dlgMat.close();
+  document.getElementById('matArchivar').onclick = async () => {
+    if (!confirm('¿Quitar «' + editando.dataset.nombre + '» de la lista? Su historial se conserva.')) return;
+    const r = await invPost('/inventario/material/' + editando.dataset.id + '/archivar', {});
+    if (r.ok) location.reload(); else document.getElementById('matError').textContent = r.error;
+  };
+  document.getElementById('formMat').addEventListener('submit', async e => {
+    e.preventDefault();
+    const r = await invPost('/inventario/material', {
+      id: editando ? editando.dataset.id : null,
+      nombre: document.getElementById('matNombre').value, categoria: document.getElementById('matCat').value,
+      unidad: document.getElementById('matUnidad').value, precio: document.getElementById('matPrecio').value,
+      minimo: document.getElementById('matMinimo').value, stock: document.getElementById('matStock').value,
+      ubicacion: document.getElementById('matUbicacion').value, nota: document.getElementById('matNota').value,
+    });
+    if (r.ok) location.reload(); else document.getElementById('matError').textContent = r.error;
+  });
+})();
+</script>
+{% endblock %}

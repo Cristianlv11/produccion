@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-title">
+  <div>
+    <h1>Herramientas asignadas</h1>
+    <p>Qué herramientas tiene cada colaborador. Sepárelas con comas.</p>
+  </div>
+</div>
+
+{% include "_inventario_tabs.html" %}
+
+<div class="section" style="padding:8px">
+  <div class="table-container" style="overflow-x:auto">
+    <table class="data-table" id="tabla">
+      <thead><tr><th style="width:24%">Persona</th><th>Herramientas</th><th class="num">Cant.</th><th></th></tr></thead>
+      <tbody>
+      {% for f in filas %}
+        <tr data-id="{{ f.id }}">
+          <td><input class="persona" value="{{ f.persona }}" style="width:100%; padding:8px; border:1px solid var(--border-color); border-radius:8px"></td>
+          <td><input class="herr" value="{{ f.herramientas }}" style="width:100%; padding:8px; border:1px solid var(--border-color); border-radius:8px"></td>
+          <td class="num">{{ f.cantidad or '' }}</td>
+          <td style="white-space:nowrap"><button class="btn btn-primary btnGuardar">Guardar</button>
+            <button class="btn btn-outline-danger btnBorrar" title="Borrar">✕</button></td>
+        </tr>
+      {% endfor %}
+        <tr data-id="">
+          <td><input class="persona" placeholder="Persona nueva" style="width:100%; padding:8px; border:1px solid var(--border-color); border-radius:8px"></td>
+          <td><input class="herr" placeholder="Taladro, Pulidora…" style="width:100%; padding:8px; border:1px solid var(--border-color); border-radius:8px"></td>
+          <td></td>
+          <td><button class="btn btn-success btnGuardar">Agregar</button></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="ayuda" id="mensaje" style="margin:10px"></p>
+</div>
+
+<script>
+document.querySelectorAll('#tabla tr').forEach(tr => {
+  const g = tr.querySelector('.btnGuardar'), b = tr.querySelector('.btnBorrar');
+  if (g) g.onclick = async () => {
+    const r = await invPost('/inventario/herramientas', { id: tr.dataset.id || null,
+      persona: tr.querySelector('.persona').value, herramientas: tr.querySelector('.herr').value });
+    if (r.ok) location.reload(); else document.getElementById('mensaje').textContent = r.error;
+  };
+  if (b) b.onclick = async () => {
+    if (!confirm('¿Borrar las herramientas de ' + tr.querySelector('.persona').value + '?')) return;
+    const r = await invPost('/inventario/herramientas', { id: tr.dataset.id, borrar: true });
+    if (r.ok) location.reload(); else document.getElementById('mensaje').textContent = r.error;
+  };
+});
+</script>
+{% endblock %}
