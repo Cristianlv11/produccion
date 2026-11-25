@@ -57,6 +57,7 @@ RUTAS_PUBLICAS_EXACTAS = {
     "/logout",
     "/registro_android",
     "/android/login",
+    "/android/abrir_web",
     "/android/me",
     "/android/cambiar_password",
     "/operarios",

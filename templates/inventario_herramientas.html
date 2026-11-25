@@ -1,52 +1,57 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="page-title">
-  <div>
-    <h1>Herramientas asignadas</h1>
-    <p>Qué herramientas tiene cada colaborador. Sepárelas con comas.</p>
+<div class="inv">
+  <div class="inv-cabeza">
+    <div>
+      <h1>🛠️ Herramientas asignadas</h1>
+      <p class="inv-sub">Qué herramientas tiene cada persona. Escríbalas separadas con comas.</p>
+    </div>
   </div>
-</div>
 
-{% include "_inventario_tabs.html" %}
+  {% include "_inventario_tabs.html" %}
 
-<div class="section" style="padding:8px">
-  <div class="table-container" style="overflow-x:auto">
-    <table class="data-table" id="tabla">
-      <thead><tr><th style="width:24%">Persona</th><th>Herramientas</th><th class="num">Cant.</th><th></th></tr></thead>
-      <tbody>
-      {% for f in filas %}
-        <tr data-id="{{ f.id }}">
-          <td><input class="persona" value="{{ f.persona }}" style="width:100%; padding:8px; border:1px solid var(--border-color); border-radius:8px"></td>
-          <td><input class="herr" value="{{ f.herramientas }}" style="width:100%; padding:8px; border:1px solid var(--border-color); border-radius:8px"></td>
-          <td class="num">{{ f.cantidad or '' }}</td>
-          <td style="white-space:nowrap"><button class="btn btn-primary btnGuardar">Guardar</button>
-            <button class="btn btn-outline-danger btnBorrar" title="Borrar">✕</button></td>
-        </tr>
-      {% endfor %}
-        <tr data-id="">
-          <td><input class="persona" placeholder="Persona nueva" style="width:100%; padding:8px; border:1px solid var(--border-color); border-radius:8px"></td>
-          <td><input class="herr" placeholder="Taladro, Pulidora…" style="width:100%; padding:8px; border:1px solid var(--border-color); border-radius:8px"></td>
-          <td></td>
-          <td><button class="btn btn-success btnGuardar">Agregar</button></td>
-        </tr>
-      </tbody>
-    </table>
+  <div class="inv-herrs">
+    {% for f in filas %}
+    <article class="inv-herr" data-id="{{ f.id }}">
+      <label>👤 Persona<input class="persona" value="{{ f.persona }}"></label>
+      <label>🛠️ Herramientas{% if f.cantidad %} <small>({{ f.cantidad }})</small>{% endif %}<input class="herr" value="{{ f.herramientas }}"></label>
+      <div class="inv-herr-botones">
+        <button class="inv-btn primario btnGuardar" type="button">Guardar</button>
+        <button class="inv-btn suave btnBorrar" type="button" aria-label="Borrar" style="color:#b91c1c">🗑️</button>
+      </div>
+    </article>
+    {% endfor %}
+    <article class="inv-herr nueva" data-id="">
+      <label>👤 Persona nueva<input class="persona" placeholder="Nombre"></label>
+      <label>🛠️ Herramientas<input class="herr" placeholder="Taladro, Pulidora…"></label>
+      <div class="inv-herr-botones"><button class="inv-btn entra btnGuardar" type="button">＋ Agregar</button></div>
+    </article>
   </div>
-  <p class="ayuda" id="mensaje" style="margin:10px"></p>
+  <p class="inv-escaner-error" id="mensaje" style="margin-top:12px"></p>
 </div>
-
+<style>
+  .inv-herrs { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+  @media (max-width: 760px) { .inv-herrs { grid-template-columns: 1fr; } }
+  .inv-herr { background: #fff; border: 1px solid var(--inv-borde); border-radius: 16px; padding: 14px; display: grid; gap: 10px; }
+  .inv-herr.nueva { border-style: dashed; background: var(--inv-verde-claro); }
+  .inv-herr label { display: grid; gap: 6px; font-weight: 700; font-size: .95rem; }
+  .inv-herr label small { font-weight: 400; color: var(--inv-gris); }
+  .inv-herr input { min-height: 46px; padding: 0 12px; border: 1px solid var(--inv-borde); border-radius: 12px; font: inherit; font-weight: 400; }
+  .inv-herr-botones { display: flex; gap: 8px; }
+  .inv-herr-botones .btnGuardar { flex: 1; }
+</style>
 <script>
-document.querySelectorAll('#tabla tr').forEach(tr => {
-  const g = tr.querySelector('.btnGuardar'), b = tr.querySelector('.btnBorrar');
-  if (g) g.onclick = async () => {
-    const r = await invPost('/inventario/herramientas', { id: tr.dataset.id || null,
-      persona: tr.querySelector('.persona').value, herramientas: tr.querySelector('.herr').value });
+document.querySelectorAll('.inv-herr').forEach(card => {
+  const g = card.querySelector('.btnGuardar'), b = card.querySelector('.btnBorrar');
+  g.onclick = async () => {
+    const r = await invPost('/inventario/herramientas', { id: card.dataset.id || null,
+      persona: card.querySelector('.persona').value, herramientas: card.querySelector('.herr').value });
     if (r.ok) location.reload(); else document.getElementById('mensaje').textContent = r.error;
   };
   if (b) b.onclick = async () => {
-    if (!confirm('¿Borrar las herramientas de ' + tr.querySelector('.persona').value + '?')) return;
-    const r = await invPost('/inventario/herramientas', { id: tr.dataset.id, borrar: true });
+    if (!confirm('¿Borrar las herramientas de ' + card.querySelector('.persona').value + '?')) return;
+    const r = await invPost('/inventario/herramientas', { id: card.dataset.id, borrar: true });
     if (r.ok) location.reload(); else document.getElementById('mensaje').textContent = r.error;
   };
 });

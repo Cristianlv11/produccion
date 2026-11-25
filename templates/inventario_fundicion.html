@@ -1,69 +1,69 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="page-title">
-  <div>
-    <h1>Fundición y mecanizado</h1>
-    <p>Piezas que se mandan a terceros. Cada movimiento las pasa de un estado al siguiente.</p>
+{% set cortos = {"sin_procesar": "Llegó de fundición", "en_mecanizado": "En mecanizado", "arreglar": "Por arreglar",
+                 "devolver": "Para devolver", "en_planta": "Lista en planta"} %}
+<div class="inv">
+  <div class="inv-cabeza">
+    <div>
+      <h1>🏭 Fundición y mecanizado</h1>
+      <p class="inv-sub">Piezas que van a los talleres de afuera. Toque <b>Mover</b> cuando lleguen o salgan piezas.</p>
+    </div>
+    <div class="inv-acciones"><button class="inv-btn primario" id="btnNuevaPieza">＋ Pieza nueva</button></div>
   </div>
-  <button class="btn btn-primary" id="btnNuevaPieza">+ Pieza nueva</button>
-</div>
 
-{% include "_inventario_tabs.html" %}
+  {% include "_inventario_tabs.html" %}
 
-<div class="section" style="padding:8px">
-  <div class="table-container" style="overflow-x:auto">
-    <table class="data-table">
-      <thead><tr><th>Código</th><th>Pieza</th>
-        {% for k, nombre in estados %}<th class="num" style="white-space:normal; max-width:110px">{{ nombre }}</th>{% endfor %}
-        <th></th></tr></thead>
-      <tbody>
-      {% for p in piezas %}
-        <tr data-id="{{ p.id }}" data-nombre="{{ p.nombre }}" data-medida="{{ p.medida }}" data-nota="{{ p.nota }}">
-          <td class="muted">{{ p.codigo }}</td>
-          <td><b>{{ p.nombre }}</b> {{ p.medida }}{% if p.nota %}<br><small class="muted">{{ p.nota }}</small>{% endif %}</td>
-          {% for k, nombre in estados %}<td class="num {{ 'negativo' if p[k] < 0 else '' }}"><b>{{ fmt(p[k]) if p[k] else '·' }}</b></td>{% endfor %}
-          <td style="white-space:nowrap">
-            <button class="btn btn-primary btnMover">Mover</button>
-            <button class="btn btn-edit btnEditar" title="Editar">✎</button>
-          </td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
+  <div class="inv-piezas">
+  {% for p in piezas %}
+    <article class="inv-pieza" data-id="{{ p.id }}" data-nombre="{{ p.nombre }}" data-medida="{{ p.medida }}" data-nota="{{ p.nota }}"
+      {% for k, _ in estados %}data-{{ k }}="{{ p[k] }}" {% endfor %}>
+      <div class="inv-mat-top"><span>{{ p.codigo }}</span><button class="inv-btn suave btnEditar" type="button" style="min-height:36px; padding:0 10px">✏️</button></div>
+      <div>
+        <div class="inv-mat-nombre">{{ p.nombre }} {{ p.medida }}</div>
+        {% if p.nota %}<div class="inv-mat-nota">{{ p.nota }}</div>{% endif %}
+      </div>
+      <div class="inv-estados">
+        {% for k, _ in estados %}
+        <div class="inv-estado {{ 'cero' if not p[k] else '' }}"><b class="{{ 'negativo' if p[k] < 0 else '' }}">{{ fmt(p[k]) if p[k] else '0' }}</b><small>{{ cortos[k] }}</small></div>
+        {% endfor %}
+      </div>
+      <button class="inv-btn primario btnMover" type="button">↔️ Mover piezas</button>
+    </article>
+  {% endfor %}
   </div>
-</div>
 
-<div class="section" style="padding:8px; margin-top:20px">
-  <h2 style="margin:10px">Historial</h2>
-  {% if not movs %}<p class="ayuda" style="margin:10px">Sin movimientos todavía.</p>{% else %}
-  <div class="table-container" style="overflow-x:auto">
-    <table class="data-table">
-      <thead><tr><th>Fecha</th><th>Pieza</th><th>Movimiento</th><th class="num">Cantidad</th><th>Taller</th><th>Nota</th></tr></thead>
-      <tbody>
-      {% for m in movs %}
-        <tr>
-          <td>{{ m.fecha }}</td><td>{{ m.pieza }}</td>
-          <td>{{ m.tipo }}{% if m.importado %} <small class="muted">(del Excel)</small>{% endif %}</td>
-          <td class="num"><b>{{ fmt(m.cantidad) }}</b></td><td>{{ m.taller }}</td><td><small>{{ m.nota }}</small></td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
+  <h2 style="margin:28px 0 10px">🕑 Historial</h2>
+  {% if not movs %}<div class="inv-vacio">Sin movimientos todavía.</div>{% else %}
+  <div class="section" style="padding:8px">
+    <div class="table-container" style="overflow-x:auto">
+      <table class="data-table">
+        <thead><tr><th>Fecha</th><th>Pieza</th><th>Movimiento</th><th class="num">Cantidad</th><th>Taller</th><th>Nota</th></tr></thead>
+        <tbody>
+        {% for m in movs %}
+          <tr>
+            <td>{{ m.fecha }}</td><td>{{ m.pieza }}</td>
+            <td>{{ m.tipo }}{% if m.importado %} <small class="muted">(del Excel)</small>{% endif %}</td>
+            <td class="num"><b>{{ fmt(m.cantidad) }}</b></td><td>{{ m.taller }}</td><td><small>{{ m.nota }}</small></td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </div>
   {% endif %}
 </div>
 
 <dialog class="inv-dialog" id="dlgMover">
   <form method="dialog" id="formMover">
-    <h2>Mover piezas</h2>
+    <h2>↔️ Mover piezas</h2>
     <p class="sub" id="moverPieza"></p>
-    <label>Movimiento
-      <select id="moverTipo">
-        {% for k, texto, de, a in movimientos %}<option value="{{ k }}" data-de="{{ de }}" data-a="{{ a }}">{{ texto }}</option>{% endfor %}
-      </select></label>
-    <p class="sub" id="moverRuta" style="margin:0"></p>
-    <label>Cantidad<input id="moverCant" class="grande" inputmode="decimal" required></label>
+    <div class="inv-flujo">
+      {% for k, texto, de, a in movimientos %}
+      <button type="button" class="inv-btn suave opcion" data-tipo="{{ k }}" data-de="{{ de }}">{{ texto }}<small>de «{{ de }}» a «{{ a }}»</small></button>
+      {% endfor %}
+    </div>
+    <label>¿Cuántas?<input id="moverCant" class="grande" inputmode="decimal" required></label>
     <div class="fila2">
       <label>Taller<input id="moverTaller" list="talleres" placeholder="Juan, Alberto…"></label>
       <label>Fecha<input id="moverFecha" type="date" value="{{ hoy }}"></label>
@@ -72,8 +72,8 @@
     <label>Nota (opcional)<input id="moverNota"></label>
     <div class="error" id="moverError"></div>
     <div class="botones">
-      <button type="button" class="btn btn-edit" id="moverCancelar">Cancelar</button>
-      <button type="submit" class="btn btn-primary" id="moverGuardar">Guardar</button>
+      <button type="button" class="inv-btn suave" id="moverCancelar">Cancelar</button>
+      <button type="submit" class="inv-btn primario" id="moverGuardar">Guardar</button>
     </div>
   </form>
 </dialog>
@@ -88,61 +88,64 @@
     <label>Nota<input id="piezaNota"></label>
     <div class="error" id="piezaError"></div>
     <div class="botones">
-      <button type="button" class="btn btn-edit" id="piezaCancelar">Cancelar</button>
-      <button type="submit" class="btn btn-primary">Guardar</button>
+      <button type="button" class="inv-btn suave" id="piezaCancelar">Cancelar</button>
+      <button type="submit" class="inv-btn primario">Guardar</button>
     </div>
   </form>
 </dialog>
 
 <script>
 (function () {
-  const dlg = document.getElementById('dlgMover'), tipo = document.getElementById('moverTipo');
-  let fila = null, forzar = false;
-  const ruta = () => {
-    const o = tipo.selectedOptions[0];
-    document.getElementById('moverRuta').textContent = 'De «' + o.dataset.de + '» a «' + o.dataset.a + '»';
-    forzar = false; document.getElementById('moverGuardar').textContent = 'Guardar'; document.getElementById('moverError').textContent = '';
-  };
-  tipo.addEventListener('change', ruta);
-  document.querySelectorAll('.btnMover').forEach(b => b.addEventListener('click', () => {
-    fila = b.closest('tr');
-    document.getElementById('moverPieza').textContent = fila.dataset.nombre + ' ' + fila.dataset.medida;
-    ['moverCant', 'moverTaller', 'moverNota'].forEach(id => document.getElementById(id).value = '');
-    ruta(); dlg.showModal(); document.getElementById('moverCant').focus();
+  const $ = id => document.getElementById(id);
+  const dlg = $('dlgMover');
+  let pieza = null, tipo = '', forzar = false;
+  document.querySelectorAll('.opcion').forEach(b => b.addEventListener('click', () => {
+    tipo = b.dataset.tipo; forzar = false;
+    document.querySelectorAll('.opcion').forEach(x => x.classList.toggle('elegido', x === b));
+    $('moverGuardar').textContent = 'Guardar'; $('moverError').textContent = '';
+    $('moverCant').focus();
   }));
-  document.getElementById('moverCancelar').onclick = () => dlg.close();
-  document.getElementById('formMover').addEventListener('submit', async e => {
+  document.querySelectorAll('.btnMover').forEach(b => b.addEventListener('click', () => {
+    pieza = b.closest('.inv-pieza'); tipo = ''; forzar = false;
+    document.querySelectorAll('.opcion').forEach(x => x.classList.remove('elegido'));
+    $('moverPieza').textContent = pieza.dataset.nombre + ' ' + pieza.dataset.medida;
+    ['moverCant', 'moverTaller', 'moverNota'].forEach(id => $(id).value = '');
+    $('moverError').textContent = ''; $('moverGuardar').textContent = 'Guardar';
+    dlg.showModal();
+  }));
+  $('moverCancelar').onclick = () => dlg.close();
+  $('formMover').addEventListener('submit', async e => {
     e.preventDefault();
+    if (!tipo) { $('moverError').textContent = 'Toque primero qué pasó con las piezas'; return; }
     const r = await invPost('/inventario/fundicion/movimiento', {
-      pieza_id: fila.dataset.id, tipo: tipo.value, cantidad: document.getElementById('moverCant').value,
-      taller: document.getElementById('moverTaller').value, nota: document.getElementById('moverNota').value,
-      fecha: document.getElementById('moverFecha').value, forzar,
+      pieza_id: pieza.dataset.id, tipo, cantidad: $('moverCant').value, taller: $('moverTaller').value,
+      nota: $('moverNota').value, fecha: $('moverFecha').value, forzar,
     });
-    if (r.estado === 409) { forzar = true; document.getElementById('moverError').textContent = r.error; document.getElementById('moverGuardar').textContent = 'Sí, mover'; return; }
-    if (r.ok) location.reload(); else document.getElementById('moverError').textContent = r.error;
+    if (r.estado === 409) { forzar = true; $('moverError').textContent = r.error; $('moverGuardar').textContent = 'Sí, mover igual'; return; }
+    if (r.ok) location.reload(); else $('moverError').textContent = r.error;
   });
 
-  const dlgP = document.getElementById('dlgPieza');
+  const dlgP = $('dlgPieza');
   let editando = null;
-  function abrir(f) {
-    editando = f;
-    document.getElementById('piezaTitulo').textContent = f ? 'Editar pieza' : 'Pieza nueva';
-    document.getElementById('piezaNombre').value = f ? f.dataset.nombre : '';
-    document.getElementById('piezaMedida').value = f ? f.dataset.medida : '';
-    document.getElementById('piezaNota').value = f ? f.dataset.nota : '';
-    document.getElementById('piezaError').textContent = '';
+  function abrir(p) {
+    editando = p;
+    $('piezaTitulo').textContent = p ? 'Editar pieza' : 'Pieza nueva';
+    $('piezaNombre').value = p ? p.dataset.nombre : '';
+    $('piezaMedida').value = p ? p.dataset.medida : '';
+    $('piezaNota').value = p ? p.dataset.nota : '';
+    $('piezaError').textContent = '';
     dlgP.showModal();
   }
-  document.getElementById('btnNuevaPieza').onclick = () => abrir(null);
-  document.querySelectorAll('.btnEditar').forEach(b => b.addEventListener('click', () => abrir(b.closest('tr'))));
-  document.getElementById('piezaCancelar').onclick = () => dlgP.close();
-  document.getElementById('formPieza').addEventListener('submit', async e => {
+  $('btnNuevaPieza').onclick = () => abrir(null);
+  document.querySelectorAll('.btnEditar').forEach(b => b.addEventListener('click', () => abrir(b.closest('.inv-pieza'))));
+  $('piezaCancelar').onclick = () => dlgP.close();
+  $('formPieza').addEventListener('submit', async e => {
     e.preventDefault();
     const r = await invPost('/inventario/fundicion/pieza', {
-      id: editando ? editando.dataset.id : null, nombre: document.getElementById('piezaNombre').value,
-      medida: document.getElementById('piezaMedida').value, nota: document.getElementById('piezaNota').value,
+      id: editando ? editando.dataset.id : null, nombre: $('piezaNombre').value,
+      medida: $('piezaMedida').value, nota: $('piezaNota').value,
     });
-    if (r.ok) location.reload(); else document.getElementById('piezaError').textContent = r.error;
+    if (r.ok) location.reload(); else $('piezaError').textContent = r.error;
   });
 })();
 </script>

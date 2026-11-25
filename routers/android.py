@@ -159,8 +159,9 @@ def login_android(request: Request, data: dict):
 
     user_id, username, _, role, operario_id, operario_nombre, debe_cambiar = row
 
-    # Supervisión (admin o supervisor) entra sin operario y usa la pantalla de cortes
-    es_supervision = role in ("admin", "supervisor")
+    # Supervisión (admin o supervisor) entra sin operario y usa la pantalla de cortes;
+    # inventario (Carlos) entra sin operario y la app le abre el inventario web
+    es_supervision = role in ("admin", "supervisor", "inventario")
     if not es_supervision and (role != "operario" or not operario_id):
         raise HTTPException(status_code=403, detail="Este usuario no tiene operario asignado")
 
@@ -477,3 +478,27 @@ def actividades_android(orden:int, proceso:int):
     conn.close()
 
     return [{"id": r[0], "nombre": r[1]} for r in rows]
+
+# ================= INVENTARIO WEB DENTRO DE LA APP =================
+
+@router.get("/android/abrir_web")
+def abrir_web_desde_app(request: Request, destino: str = "/inventario", payload: dict = Depends(leer_token_android)):
+    """La app manda su token en la cabecera Authorization; aquí se abre la sesión web y se redirige.
+    Así el inventario web funciona dentro de la app sin volver a escribir la clave (el token no va en la URL)."""
+    from fastapi.responses import RedirectResponse
+    import secrets
+    conn = db()
+    c = conn.cursor()
+    c.execute("SELECT username, role FROM users WHERE id = %s AND COALESCE(activo, TRUE) = TRUE", (payload.get("user_id"),))
+    fila = c.fetchone()
+    conn.close()
+    if not fila or fila[1] not in ("inventario", "admin"):
+        raise HTTPException(status_code=403, detail="Este usuario no tiene acceso al inventario")
+    if not (destino == "/inventario" or destino.startswith("/inventario/")):
+        destino = "/inventario"
+    request.session.clear()
+    request.session["csrf_token"] = secrets.token_hex(32)
+    request.session["username"] = fila[0]
+    request.session["role"] = fila[1]
+    request.session["en_app"] = True
+    return RedirectResponse(destino, status_code=303)

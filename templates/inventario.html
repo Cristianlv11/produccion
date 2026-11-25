@@ -1,106 +1,116 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="page-title">
-  <div>
-    <h1>Inventario de materiales</h1>
-    <p>Lo que hay en el almacén. Registre aquí lo que entra (compras, llegadas) y lo que se entrega a producción.</p>
+{% set iconos = {"Láminas": "📄", "Aceros, tubos y ejes": "📏", "Tornillería": "🔩", "Rodamientos y transmisión": "⚙️",
+  "Eléctricos y motores": "⚡", "Pintura y químicos": "🎨", "Gases": "🧯", "Herramientas y consumibles": "🛠️",
+  "Caucho y plásticos": "🧴", "Dotación y seguridad": "🦺", "Otros": "📦"} %}
+<div class="inv">
+  <div class="inv-cabeza">
+    <div>
+      <h1>📦 Inventario de materiales</h1>
+      <p class="inv-sub">Escanee o busque un material y toque <b>Entra</b> cuando llega o <b>Sale</b> cuando se entrega.</p>
+    </div>
+    <div class="inv-acciones">
+      <a class="inv-btn suave" id="btnEtiquetas" href="/inventario/etiquetas">🏷️ Etiquetas</a>
+      <button class="inv-btn primario" id="btnNuevo">＋ Material nuevo</button>
+    </div>
   </div>
-  <div style="display:flex; gap:8px; flex-wrap:wrap">
-    <a class="btn btn-edit" id="btnEtiquetas" href="/inventario/etiquetas">🏷 Etiquetas</a>
-    <button class="btn btn-primary" id="btnNuevo">+ Material nuevo</button>
-  </div>
-</div>
 
-{% include "_inventario_tabs.html" %}
+  {% include "_inventario_tabs.html" %}
 
-<div class="kpi-grid">
-  <div class="kpi-card"><div class="kpi-title">Materiales</div><div class="kpi-value">{{ fmt(resumen.total) }}</div></div>
-  <div class="kpi-card"><div class="kpi-title">Valor del inventario</div><div class="kpi-value success">{{ pesos(resumen.valor) }}</div></div>
-  <div class="kpi-card" title="Sin precio no suman al valor del inventario"><div class="kpi-title">Sin precio</div><div class="kpi-value warning">{{ resumen.sin_precio }}</div></div>
-  <div class="kpi-card"><div class="kpi-title">En negativo o bajo el mínimo</div><div class="kpi-value {{ 'danger' if (resumen.negativos + resumen.bajos) else '' }}">{{ resumen.negativos + resumen.bajos }}</div></div>
-</div>
-
-<div class="section" style="padding: 14px 14px 8px">
-  <form id="formEscaner" style="display:flex; gap:10px; align-items:center; margin-bottom:12px; background:#f0f7ec; border:2px dashed var(--primary); border-radius:12px; padding:10px 12px">
-    <span style="font-size:1.6rem" aria-hidden="true">▮▯▮▮▯</span>
-    <input id="escaner" autocomplete="off" autofocus placeholder="Escanee la etiqueta con la pistola (o escriba el código y Enter)"
-           style="flex:1; min-width:180px; padding:12px; border:1px solid var(--border-color); border-radius:10px; font-size:1.05rem">
-    <span class="error" id="escanerError" style="color:var(--danger); font-weight:600"></span>
+  <form class="inv-escaner" id="formEscaner">
+    <span class="icono" aria-hidden="true">▮▯▮</span>
+    <input id="escaner" autocomplete="off" autofocus enterkeyhint="go" aria-label="Código del material"
+           placeholder="Escanee la etiqueta o escriba el código">
+    <button type="button" class="inv-btn primario" id="btnCamara" hidden>📷 Cámara</button>
   </form>
-  <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:12px">
-    <input id="buscar" type="search" placeholder="Buscar material o código…" style="flex:1; min-width:220px; padding:10px 12px; border:1px solid var(--border-color); border-radius:10px">
-    <select id="filtroCat" style="padding:10px 12px; border:1px solid var(--border-color); border-radius:10px">
-      <option value="">Todas las categorías</option>
-      {% for cat, n in categorias %}{% if n %}<option value="{{ cat }}">{{ cat }} ({{ n }})</option>{% endif %}{% endfor %}
-    </select>
-    <select id="filtroEstado" style="padding:10px 12px; border:1px solid var(--border-color); border-radius:10px">
-      <option value="">Todo el stock</option>
-      <option value="alerta">Negativos o bajo el mínimo</option>
-      <option value="cero">Agotados (0)</option>
-      <option value="sinprecio">Sin precio</option>
-    </select>
+  <p class="inv-escaner-error" id="escanerError"></p>
+
+  <div class="inv-resumen">
+    <div class="inv-dato"><small>Materiales</small><b>{{ fmt(resumen.total) }}</b></div>
+    <div class="inv-dato"><small>Valor del inventario</small><b>{{ pesos(resumen.valor) }}</b></div>
+    <button class="inv-dato {{ 'alerta' if (resumen.negativos + resumen.bajos) else '' }}" data-estado="alerta" type="button">
+      <small>Negativos o bajo el mínimo</small><b>{{ resumen.negativos + resumen.bajos }}</b></button>
+    <button class="inv-dato" data-estado="cero" type="button"><small>Agotados</small><b id="numAgotados">·</b></button>
+    <button class="inv-dato aviso" data-estado="sinprecio" type="button"><small>Sin precio</small><b>{{ resumen.sin_precio }}</b></button>
   </div>
-  <p class="ayuda" id="contador" style="margin:0 0 8px"></p>
-  <div class="table-container" style="overflow-x:auto">
-    <table class="data-table" id="tabla">
-      <thead><tr>
-        <th>Código</th><th>Material</th><th>Categoría</th><th class="num">Stock</th><th class="num">Precio</th>
-        <th class="num">Valor</th><th>Último mov.</th><th></th>
-      </tr></thead>
-      <tbody>
-      {% for m in materiales %}
-        <tr data-id="{{ m.id }}" data-nombre="{{ m.nombre }}" data-cat="{{ m.categoria }}" data-codigo="{{ m.codigo }}"
-            data-unidad="{{ m.unidad }}" data-precio="{{ m.precio if m.precio is not none else '' }}"
-            data-minimo="{{ m.minimo if m.minimo is not none else '' }}" data-ubicacion="{{ m.ubicacion }}" data-nota="{{ m.nota }}"
-            data-stock="{{ m.stock }}" data-alerta="{{ 1 if (m.negativo or m.bajo) else 0 }}" data-peso="{{ m.peso if m.peso is not none else '' }}">
-          <td class="muted">{{ m.codigo }}</td>
-          <td><b>{{ m.nombre }}</b>{% if m.ubicacion %}<br><small class="muted">📍 {{ m.ubicacion }}</small>{% endif %}
-              {% if m.nota %}<br><small class="muted">{{ m.nota }}</small>{% endif %}</td>
-          <td><small>{{ m.categoria }}</small></td>
-          <td class="num celStock {{ 'negativo' if m.negativo else ('bajo' if m.bajo else '') }}"><b>{{ fmt(m.stock) }}</b> <small class="muted">{{ m.unidad }}</small>{% if m.peso %}<br><small class="muted" title="Peso de una unidad">⚖ {{ fmt(m.peso) }} g c/u</small>{% endif %}</td>
-          <td class="num">{{ pesos(m.precio) if m.precio is not none else '—' }}</td>
-          <td class="num">{{ pesos(m.valor) if m.valor else '' }}</td>
-          <td><small class="muted">{{ m.ultimo }}</small></td>
-          <td style="white-space:nowrap">
-            <button class="btn btn-success btnMov" data-tipo="entrada" title="Llegó material">+ Entrada</button>
-            <button class="btn btn-outline-primary btnMov" data-tipo="entrega" title="Sale del almacén">− Entrega</button>
-            <button class="btn btn-edit btnMov" data-tipo="ajuste" title="Contar lo que hay de verdad">Contar</button>
-            <button class="btn btn-edit btnEditar" title="Editar datos del material">✎</button>
-            <a class="btn btn-edit" href="/inventario/etiquetas?ids={{ m.id }}" title="Imprimir su etiqueta">🏷</a>
-            <a class="btn btn-edit" href="/inventario/movimientos?material={{ m.id }}" title="Historial">🕑</a>
-          </td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
+
+  <div class="inv-cats" id="cats">
+    <button class="inv-cat activo" data-cat="" type="button"><span class="ico">🗂️</span><b>Todos</b><small>{{ resumen.total }} materiales</small></button>
+    {% for cat, n in categorias %}{% if n %}
+    <button class="inv-cat" data-cat="{{ cat }}" type="button"><span class="ico">{{ iconos.get(cat, '📦') }}</span><b>{{ cat }}</b><small>{{ n }}</small></button>
+    {% endif %}{% endfor %}
   </div>
+
+  <div class="inv-buscar">
+    <input id="buscar" type="search" placeholder="🔎 Buscar por nombre o código (ej.: tuerca 3/8)" aria-label="Buscar material">
+  </div>
+  <p class="inv-contador" id="contador"></p>
+
+  <div class="inv-lista" id="lista">
+  {% for m in materiales %}
+    <article class="inv-mat {{ 'negativo' if m.negativo else ('bajo' if m.bajo else '') }}"
+        data-id="{{ m.id }}" data-nombre="{{ m.nombre }}" data-cat="{{ m.categoria }}" data-codigo="{{ m.codigo }}"
+        data-unidad="{{ m.unidad }}" data-precio="{{ m.precio if m.precio is not none else '' }}"
+        data-minimo="{{ m.minimo if m.minimo is not none else '' }}" data-ubicacion="{{ m.ubicacion }}" data-nota="{{ m.nota }}"
+        data-stock="{{ m.stock }}" data-alerta="{{ 1 if (m.negativo or m.bajo) else 0 }}" data-peso="{{ m.peso if m.peso is not none else '' }}">
+      <div class="inv-mat-top"><span>{{ iconos.get(m.categoria, '📦') }} {{ m.categoria }}</span><span class="cod">{{ m.codigo }}</span></div>
+      <div>
+        <div class="inv-mat-nombre">{{ m.nombre }}</div>
+        {% if m.ubicacion %}<div class="inv-mat-nota">📍 {{ m.ubicacion }}</div>{% endif %}
+        {% if m.nota %}<div class="inv-mat-nota">{{ m.nota }}</div>{% endif %}
+      </div>
+      <div class="inv-mat-stock">
+        <b class="celStock">{{ fmt(m.stock) }}</b><span class="unidad">{{ m.unidad }}</span>
+        <span class="extra">
+          {% if m.precio is not none %}{{ pesos(m.precio) }} c/u{% else %}sin precio{% endif %}
+          {% if m.peso %}<br>⚖️ {{ fmt(m.peso) }} g c/u{% endif %}
+          {% if m.minimo is not none %}<br>mínimo {{ fmt(m.minimo) }}{% endif %}
+        </span>
+      </div>
+      <div class="inv-mat-botones">
+        <button class="inv-btn entra btnMov" data-tipo="entrada" type="button">＋ Entra</button>
+        <button class="inv-btn sale btnMov" data-tipo="entrega" type="button">− Sale</button>
+        <button class="inv-btn suave btnMov" data-tipo="ajuste" type="button">Contar</button>
+        <div class="inv-menu">
+          <button class="inv-btn suave btnMenu" type="button" aria-label="Más opciones">⋯</button>
+          <div class="inv-menu-lista">
+            <button class="btnEditar" type="button">✏️ Editar datos</button>
+            <a href="/inventario/movimientos?material={{ m.id }}">🕑 Ver historial</a>
+            <a href="/inventario/etiquetas?ids={{ m.id }}">🏷️ Imprimir etiqueta</a>
+          </div>
+        </div>
+      </div>
+    </article>
+  {% endfor %}
+  </div>
+  <div class="inv-vacio" id="vacio" hidden>No hay materiales con esa búsqueda.</div>
 </div>
 
 <dialog class="inv-dialog" id="dlgMov">
   <form method="dialog" id="formMov">
     <h2 id="movTitulo">Entrada</h2>
     <p class="sub" id="movMaterial"></p>
-    <div id="movTipos" style="display:none; gap:6px">
-      <button type="button" class="btn btn-success movTipo" data-tipo="entrada">+ Entrada</button>
-      <button type="button" class="btn btn-outline-primary movTipo" data-tipo="entrega">− Entrega</button>
-      <button type="button" class="btn btn-edit movTipo" data-tipo="ajuste">Contar</button>
+    <div class="tipos" id="movTipos">
+      <button type="button" class="inv-btn entra movTipo" data-tipo="entrada">＋ Entra</button>
+      <button type="button" class="inv-btn sale movTipo" data-tipo="entrega">− Sale</button>
+      <button type="button" class="inv-btn suave movTipo" data-tipo="ajuste">Contar</button>
     </div>
-    <label id="movPesarFila" style="display:none; flex-wrap:wrap; align-items:center; gap:4px 8px; font-weight:600; background:#f0f7ec; padding:8px 10px; border-radius:10px">
-      <input type="checkbox" id="movPesar" style="width:auto; margin:0"> Pesar en vez de contar <small class="muted" id="movPesoUnit"></small></label>
+    <label id="movPesarFila" style="display:none; flex-wrap:wrap; align-items:center; gap:4px 10px; background:#e8f3e3; padding:10px 12px; border-radius:12px">
+      <input type="checkbox" id="movPesar" style="width:22px; min-height:22px; margin:0"> ⚖️ Pesar en vez de contar <small id="movPesoUnit" style="font-weight:400"></small></label>
     <label><span id="movLabelCant">Cantidad</span><input id="movCant" class="grande" inputmode="decimal" autocomplete="off" required></label>
-    <p class="sub" id="movEquivale" style="margin:-6px 0 0; font-weight:700; color:var(--primary)"></p>
-    <div class="fila2" id="movFilaEntrada">
-      <label>Precio unitario (opcional)<input id="movPrecio" inputmode="decimal" placeholder="Deje vacío para no cambiarlo"></label>
-      <label>Fecha<input id="movFecha" type="date" value="{{ hoy }}"></label>
-    </div>
+    <p class="sub" id="movEquivale" style="margin:-8px 0 0; font-weight:800; color:#2f6b2a"></p>
     <label id="movLabelDestino">¿A quién o para qué?<input id="movDestino" list="destinos" placeholder="Ej.: Felipe, armado de módulos"></label>
     <datalist id="destinos"><option value="Producción"><option value="Armado"><option value="Soldadura"><option value="Pintura"><option value="Corte láser"><option value="Doblez"></datalist>
+    <div class="fila2">
+      <label id="movLabelPrecio">Precio c/u (opcional)<input id="movPrecio" inputmode="decimal" placeholder="Igual que antes"></label>
+      <label>Fecha<input id="movFecha" type="date" value="{{ hoy }}"></label>
+    </div>
     <label>Nota (opcional)<input id="movNota" placeholder="Ej.: factura 1234, orden 18"></label>
     <div class="error" id="movError"></div>
     <div class="botones">
-      <button type="button" class="btn btn-edit" id="movCancelar">Cancelar</button>
-      <button type="submit" class="btn btn-primary" id="movGuardar">Guardar</button>
+      <button type="button" class="inv-btn suave" id="movCancelar">Cancelar</button>
+      <button type="submit" class="inv-btn primario" id="movGuardar">Guardar</button>
     </div>
   </form>
 </dialog>
@@ -115,189 +125,207 @@
     </div>
     <datalist id="unidades"><option value="und"><option value="kg"><option value="m"><option value="lámina"><option value="galón"><option value="caja"><option value="rollo"></datalist>
     <div class="fila2">
-      <label>Precio unitario<input id="matPrecio" inputmode="decimal"></label>
-      <label>Stock mínimo<input id="matMinimo" inputmode="decimal" placeholder="Avisa cuando baje"></label>
+      <label>Precio c/u<input id="matPrecio" inputmode="decimal"></label>
+      <label>Mínimo<input id="matMinimo" inputmode="decimal" placeholder="Avisa al bajar"></label>
     </div>
     <div class="fila2">
-      <label id="matLabelStock">Stock inicial<input id="matStock" inputmode="decimal" value="0"></label>
+      <label id="matLabelStock">Cantidad inicial<input id="matStock" inputmode="decimal" value="0"></label>
       <label>Ubicación<input id="matUbicacion" placeholder="Ej.: estante 3"></label>
     </div>
-    <label>Peso de una unidad, en gramos (para pesar en vez de contar)
+    <label>⚖️ Peso de una unidad (gramos)
       <input id="matPeso" inputmode="decimal" list="pesosRef" placeholder="Escriba o busque en la tabla de tornillería">
-      <small class="muted" style="font-weight:400">Al escribir, aparecen los pesos del Excel de tornillería de febrero; escoja el que corresponda.</small></label>
+      <small style="font-weight:400; color:#5d6b59">Al escribir salen los pesos del Excel de tornillería; escoja el que corresponda.</small></label>
     <datalist id="pesosRef">{% for p in pesos_ref %}<option value="{{ fmt(p.peso) }} g · {{ p.nombre }}">{% endfor %}</datalist>
     <label>Nota<input id="matNota"></label>
     <div class="error" id="matError"></div>
     <div class="botones">
-      <button type="button" class="btn btn-outline-danger" id="matArchivar" style="margin-right:auto">Quitar de la lista</button>
-      <button type="button" class="btn btn-edit" id="matCancelar">Cancelar</button>
-      <button type="submit" class="btn btn-primary">Guardar</button>
+      <button type="button" class="inv-btn suave" id="matArchivar" style="margin-right:auto; color:#b91c1c">Quitar de la lista</button>
+      <button type="button" class="inv-btn suave" id="matCancelar">Cancelar</button>
+      <button type="submit" class="inv-btn primario">Guardar</button>
     </div>
   </form>
 </dialog>
 
 <script>
 (function () {
-  const filas = [...document.querySelectorAll('#tabla tbody tr')];
-  const buscar = document.getElementById('buscar'), filtroCat = document.getElementById('filtroCat'), filtroEstado = document.getElementById('filtroEstado');
+  const $ = id => document.getElementById(id);
+  const tarjetas = [...document.querySelectorAll('#lista .inv-mat')];
   const sinTildes = t => (t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  let cat = '', estado = '';
+
+  // ---- Filtros: categoría, búsqueda y avisos ----
   function filtrar() {
-    const q = sinTildes(buscar.value).split(/\s+/).filter(Boolean), cat = filtroCat.value, est = filtroEstado.value;
+    const q = sinTildes($('buscar').value).split(/\s+/).filter(Boolean);
     let n = 0;
-    for (const f of filas) {
-      const texto = sinTildes(f.dataset.nombre + ' ' + f.dataset.codigo);
-      let ver = q.every(p => texto.includes(p)) && (!cat || f.dataset.cat === cat);
-      if (ver && est === 'alerta') ver = f.dataset.alerta === '1';
-      if (ver && est === 'cero') ver = Number(f.dataset.stock) === 0;
-      if (ver && est === 'sinprecio') ver = f.dataset.precio === '';
-      f.style.display = ver ? '' : 'none';
+    for (const t of tarjetas) {
+      const texto = sinTildes(t.dataset.nombre + ' ' + t.dataset.codigo);
+      let ver = q.every(p => texto.includes(p)) && (!cat || t.dataset.cat === cat);
+      if (ver && estado === 'alerta') ver = t.dataset.alerta === '1';
+      if (ver && estado === 'cero') ver = Number(t.dataset.stock) === 0;
+      if (ver && estado === 'sinprecio') ver = t.dataset.precio === '';
+      t.hidden = !ver;
       if (ver) n++;
     }
-    document.getElementById('contador').textContent = n === filas.length ? `${n} materiales` : `${n} de ${filas.length} materiales`;
-    try { localStorage.setItem('invFiltros', JSON.stringify({ q: buscar.value, cat, est })); } catch (e) {}
+    $('contador').textContent = n === tarjetas.length ? `${n} materiales` : `${n} de ${tarjetas.length} materiales`;
+    $('vacio').hidden = n > 0;
+    $('numAgotados').textContent = tarjetas.filter(t => Number(t.dataset.stock) === 0).length;
+    try { localStorage.setItem('invFiltros2', JSON.stringify({ q: $('buscar').value, cat, estado })); } catch (e) {}
   }
+  function marcarCat() { document.querySelectorAll('.inv-cat').forEach(b => b.classList.toggle('activo', b.dataset.cat === cat)); }
+  function marcarEstado() { document.querySelectorAll('button.inv-dato').forEach(b => b.classList.toggle('activo', b.dataset.estado === estado)); }
+  document.querySelectorAll('.inv-cat').forEach(b => b.addEventListener('click', () => { cat = b.dataset.cat; marcarCat(); filtrar(); }));
+  document.querySelectorAll('button.inv-dato').forEach(b => b.addEventListener('click', () => {
+    estado = estado === b.dataset.estado ? '' : b.dataset.estado; marcarEstado(); filtrar();
+  }));
+  $('buscar').addEventListener('input', filtrar);
   try {
-    const g = JSON.parse(localStorage.getItem('invFiltros') || '{}');
-    buscar.value = g.q || ''; filtroCat.value = g.cat || ''; filtroEstado.value = g.est || '';
+    const g = JSON.parse(localStorage.getItem('invFiltros2') || '{}');
+    $('buscar').value = g.q || ''; cat = g.cat || ''; estado = g.estado || '';
   } catch (e) {}
-  [buscar, filtroCat, filtroEstado].forEach(el => el.addEventListener('input', filtrar));
-  filtrar();
+  marcarCat(); marcarEstado(); filtrar();
+
+  // ---- Menú ⋯ de cada tarjeta ----
+  document.querySelectorAll('.btnMenu').forEach(b => b.addEventListener('click', e => {
+    e.stopPropagation();
+    const m = b.closest('.inv-menu'), abierto = m.classList.contains('abierto');
+    document.querySelectorAll('.inv-menu.abierto').forEach(x => x.classList.remove('abierto'));
+    if (!abierto) m.classList.add('abierto');
+  }));
+  document.addEventListener('click', () => document.querySelectorAll('.inv-menu.abierto').forEach(x => x.classList.remove('abierto')));
 
   // ---- Movimientos ----
-  const dlg = document.getElementById('dlgMov');
-  const $ = id => document.getElementById(id);
-  let fila = null, tipo = '', forzar = false;
+  const dlg = $('dlgMov');
+  let tarjeta = null, tipo = '', forzar = false;
   const textos = {
-    entrada: ['Entrada al almacén', 'Cantidad que llegó'],
-    entrega: ['Entrega a producción', 'Cantidad que sale'],
+    entrada: ['＋ Entra al almacén', 'Cantidad que llegó'],
+    entrega: ['− Sale del almacén', 'Cantidad que sale'],
     ajuste: ['Contar lo que hay', '¿Cuántos hay de verdad?'],
   };
-  const pesoUnidad = () => Number(fila && fila.dataset.peso) || 0;
-  // Con «Pesar», la cantidad escrita son gramos y se convierte a unidades con el peso de una unidad
-  function unidades() {
+  const pesoUnidad = () => Number(tarjeta && tarjeta.dataset.peso) || 0;
+  function unidades() {  // con «Pesar» lo escrito son gramos y se pasa a unidades
     const v = Number(String($('movCant').value).replace(',', '.'));
     if (!$('movPesar').checked) return $('movCant').value;
     return pesoUnidad() && v > 0 ? String(Math.round(v / pesoUnidad())) : '';
   }
   function equivalencia() {
     const u = unidades();
-    $('movEquivale').textContent = $('movPesar').checked && u ? '≈ ' + Number(u).toLocaleString('es-CO') + ' ' + fila.dataset.unidad : '';
+    $('movEquivale').textContent = $('movPesar').checked && u ? '≈ ' + Number(u).toLocaleString('es-CO') + ' ' + tarjeta.dataset.unidad : '';
+  }
+  function etiquetaCantidad() {
+    $('movLabelCant').textContent = $('movPesar').checked ? 'Peso en la báscula (gramos)' : textos[tipo][1] + ' (' + tarjeta.dataset.unidad + ')';
   }
   function ponerTipo(t) {
     tipo = t; forzar = false;
     $('movTitulo').textContent = textos[tipo][0];
-    $('movPrecio').parentElement.style.display = tipo === 'entrada' ? '' : 'none';
+    $('movLabelPrecio').style.visibility = tipo === 'entrada' ? '' : 'hidden';
     $('movLabelDestino').style.display = tipo === 'entrega' ? '' : 'none';
-    document.querySelectorAll('.movTipo').forEach(b => b.style.outline = b.dataset.tipo === tipo ? '3px solid var(--primary)' : '');
+    document.querySelectorAll('.movTipo').forEach(b => b.classList.toggle('elegido', b.dataset.tipo === tipo));
     $('movPesar').checked = false;
     etiquetaCantidad();
-    $('movCant').value = tipo === 'ajuste' ? fila.dataset.stock.replace(/\.0+$/, '') : '';
+    $('movCant').value = tipo === 'ajuste' ? tarjeta.dataset.stock.replace(/\.0+$/, '') : '';
     $('movError').textContent = ''; $('movGuardar').textContent = 'Guardar';
     equivalencia();
   }
-  function etiquetaCantidad() {
-    $('movLabelCant').textContent = $('movPesar').checked ? 'Peso en la báscula (gramos)' : textos[tipo][1] + ' (' + fila.dataset.unidad + ')';
-  }
-  function abrirMov(f, t, desdeEscaner) {
-    fila = f;
-    $('movMaterial').textContent = fila.dataset.codigo + ' · ' + fila.dataset.nombre + ' · hay ' + fila.querySelector('.celStock b').textContent + ' ' + fila.dataset.unidad;
-    $('movTipos').style.display = desdeEscaner ? 'flex' : 'none';
+  function abrirMov(t, tp) {
+    tarjeta = t;
+    $('movMaterial').textContent = tarjeta.dataset.codigo + ' · ' + tarjeta.dataset.nombre + ' · hay ' + tarjeta.querySelector('.celStock').textContent + ' ' + tarjeta.dataset.unidad;
     $('movPesarFila').style.display = pesoUnidad() ? 'flex' : 'none';
     $('movPesoUnit').textContent = pesoUnidad() ? '(' + pesoUnidad().toLocaleString('es-CO') + ' g cada uno)' : '';
     ['movPrecio', 'movDestino', 'movNota'].forEach(id => $(id).value = '');
-    ponerTipo(t);
+    ponerTipo(tp);
     dlg.showModal();
     $('movCant').select();
   }
-  document.querySelectorAll('.btnMov').forEach(b => b.addEventListener('click', () => abrirMov(b.closest('tr'), b.dataset.tipo, false)));
+  document.querySelectorAll('.btnMov').forEach(b => b.addEventListener('click', () => abrirMov(b.closest('.inv-mat'), b.dataset.tipo)));
   document.querySelectorAll('.movTipo').forEach(b => b.addEventListener('click', () => { ponerTipo(b.dataset.tipo); $('movCant').focus(); }));
   $('movPesar').addEventListener('change', () => { etiquetaCantidad(); $('movCant').value = ''; equivalencia(); $('movCant').focus(); });
   $('movCant').addEventListener('input', equivalencia);
   $('movCancelar').onclick = () => dlg.close();
-  dlg.addEventListener('close', () => { $('escaner').value = ''; $('escaner').focus(); });
+  dlg.addEventListener('close', () => { $('escaner').value = ''; if (!invEnApp) $('escaner').focus(); });
   $('formMov').addEventListener('submit', async e => {
     e.preventDefault();
     const cantidad = unidades();
     if (!cantidad) { $('movError').textContent = 'Escriba ' + ($('movPesar').checked ? 'el peso' : 'la cantidad'); return; }
     const nota = [$('movNota').value, $('movPesar').checked ? 'Pesado: ' + $('movCant').value + ' g' : ''].filter(Boolean).join(' · ');
+    $('movGuardar').disabled = true;
     const r = await invPost('/inventario/movimiento', {
-      tipo, material_id: fila.dataset.id, cantidad, precio: $('movPrecio').value, destino: $('movDestino').value,
+      tipo, material_id: tarjeta.dataset.id, cantidad, precio: $('movPrecio').value, destino: $('movDestino').value,
       nota, fecha: $('movFecha').value, forzar,
     });
-    if (r.estado === 409) {  // entrega mayor que el stock: se puede confirmar
-      forzar = true;
-      $('movError').textContent = r.error;
-      $('movGuardar').textContent = 'Sí, entregar';
-      return;
-    }
+    $('movGuardar').disabled = false;
+    if (r.estado === 409) { forzar = true; $('movError').textContent = r.error; $('movGuardar').textContent = 'Sí, sacar igual'; return; }
     if (!r.ok) { $('movError').textContent = r.error; return; }
-    const celda = fila.querySelector('.celStock');
-    celda.querySelector('b').textContent = r.datos.stock;
-    fila.dataset.stock = r.datos.stock.replace(/\./g, '').replace(',', '.');
-    celda.classList.toggle('negativo', Number(fila.dataset.stock) < 0);
-    celda.style.background = '#dcfce7';
-    setTimeout(() => celda.style.background = '', 1500);
+    const celda = tarjeta.querySelector('.celStock');
+    celda.textContent = r.datos.stock;
+    tarjeta.dataset.stock = r.datos.stock.replace(/\./g, '').replace(',', '.');
+    tarjeta.classList.toggle('negativo', Number(tarjeta.dataset.stock) < 0);
+    tarjeta.style.boxShadow = '0 0 0 4px #86efac';
+    setTimeout(() => tarjeta.style.boxShadow = '', 1600);
     dlg.close();
   });
 
-  // ---- Pistola lectora: escribe el código y da Enter ----
-  $('formEscaner').addEventListener('submit', e => {
-    e.preventDefault();
-    const codigo = $('escaner').value.trim().toUpperCase();
+  // ---- Escáner: la pistola escribe el código y da Enter; en la app también la cámara ----
+  function buscarCodigo(codigo) {
+    codigo = (codigo || '').trim().toUpperCase();
     if (!codigo) return;
-    const f = filas.find(x => x.dataset.codigo.toUpperCase() === codigo);
-    if (!f) { $('escanerError').textContent = 'No hay ningún material con el código ' + codigo; $('escaner').select(); return; }
+    const t = tarjetas.find(x => x.dataset.codigo.toUpperCase() === codigo);
+    if (!t) { $('escanerError').textContent = '⚠️ No hay ningún material con el código ' + codigo; $('escaner').select(); return; }
     $('escanerError').textContent = '';
-    abrirMov(f, 'entrega', true);
-  });
+    abrirMov(t, 'entrega');
+  }
+  $('formEscaner').addEventListener('submit', e => { e.preventDefault(); buscarCodigo($('escaner').value); });
+  window.inventarioCodigoLeido = codigo => { $('escaner').value = codigo; buscarCodigo(codigo); };
+  if (invEnApp) {
+    $('btnCamara').hidden = false;
+    $('btnCamara').onclick = () => window.InventarioApp.escanear();
+  }
 
-  // El botón de etiquetas imprime lo que se está viendo (misma búsqueda y categoría)
+  // El botón de etiquetas imprime lo que se está viendo (misma categoría y búsqueda)
   $('btnEtiquetas').addEventListener('click', e => {
     const q = new URLSearchParams();
-    if (filtroCat.value) q.set('categoria', filtroCat.value);
-    if (buscar.value.trim()) q.set('buscar', buscar.value.trim());
+    if (cat) q.set('categoria', cat);
+    if ($('buscar').value.trim()) q.set('buscar', $('buscar').value.trim());
     e.currentTarget.href = '/inventario/etiquetas' + (q.toString() ? '?' + q : '');
   });
 
   // ---- Material nuevo / editar ----
-  const dlgMat = document.getElementById('dlgMat');
+  const dlgMat = $('dlgMat');
   let editando = null;
-  function abrirMaterial(f) {
-    editando = f;
-    document.getElementById('matTitulo').textContent = f ? 'Editar material' : 'Material nuevo';
-    document.getElementById('matNombre').value = f ? f.dataset.nombre : '';
-    document.getElementById('matCat').value = f ? f.dataset.cat : 'Otros';
-    document.getElementById('matUnidad').value = f ? f.dataset.unidad : 'und';
-    document.getElementById('matPrecio').value = f ? f.dataset.precio : '';
-    document.getElementById('matMinimo').value = f ? f.dataset.minimo : '';
-    document.getElementById('matUbicacion').value = f ? f.dataset.ubicacion : '';
-    document.getElementById('matNota').value = f ? f.dataset.nota : '';
-    document.getElementById('matPeso').value = f && f.dataset.peso ? f.dataset.peso : '';
-    document.getElementById('matStock').value = '0';
-    document.getElementById('matLabelStock').style.display = f ? 'none' : '';
-    document.getElementById('matArchivar').style.display = f ? '' : 'none';
-    document.getElementById('matError').textContent = '';
+  function abrirMaterial(t) {
+    editando = t;
+    $('matTitulo').textContent = t ? 'Editar material' : 'Material nuevo';
+    $('matNombre').value = t ? t.dataset.nombre : '';
+    $('matCat').value = t ? t.dataset.cat : (cat || 'Otros');
+    $('matUnidad').value = t ? t.dataset.unidad : 'und';
+    $('matPrecio').value = t ? t.dataset.precio : '';
+    $('matMinimo').value = t ? t.dataset.minimo : '';
+    $('matUbicacion').value = t ? t.dataset.ubicacion : '';
+    $('matNota').value = t ? t.dataset.nota : '';
+    $('matPeso').value = t && t.dataset.peso ? t.dataset.peso : '';
+    $('matStock').value = '0';
+    $('matLabelStock').style.visibility = t ? 'hidden' : '';
+    $('matArchivar').style.display = t ? '' : 'none';
+    $('matError').textContent = '';
     dlgMat.showModal();
   }
-  document.getElementById('btnNuevo').onclick = () => abrirMaterial(null);
-  document.querySelectorAll('.btnEditar').forEach(b => b.addEventListener('click', () => abrirMaterial(b.closest('tr'))));
-  document.getElementById('matCancelar').onclick = () => dlgMat.close();
-  document.getElementById('matArchivar').onclick = async () => {
+  $('btnNuevo').onclick = () => abrirMaterial(null);
+  document.querySelectorAll('.btnEditar').forEach(b => b.addEventListener('click', () => abrirMaterial(b.closest('.inv-mat'))));
+  $('matCancelar').onclick = () => dlgMat.close();
+  $('matArchivar').onclick = async () => {
     if (!confirm('¿Quitar «' + editando.dataset.nombre + '» de la lista? Su historial se conserva.')) return;
     const r = await invPost('/inventario/material/' + editando.dataset.id + '/archivar', {});
-    if (r.ok) location.reload(); else document.getElementById('matError').textContent = r.error;
+    if (r.ok) location.reload(); else $('matError').textContent = r.error;
   };
-  document.getElementById('formMat').addEventListener('submit', async e => {
+  $('formMat').addEventListener('submit', async e => {
     e.preventDefault();
     const r = await invPost('/inventario/material', {
       id: editando ? editando.dataset.id : null,
-      nombre: document.getElementById('matNombre').value, categoria: document.getElementById('matCat').value,
-      unidad: document.getElementById('matUnidad').value, precio: document.getElementById('matPrecio').value,
-      minimo: document.getElementById('matMinimo').value, stock: document.getElementById('matStock').value,
-      ubicacion: document.getElementById('matUbicacion').value, nota: document.getElementById('matNota').value,
-      peso: (document.getElementById('matPeso').value.match(/[\d.,]+/) || [''])[0].replace(/\.(?=\d{3})/g, '').replace(',', '.'),
+      nombre: $('matNombre').value, categoria: $('matCat').value, unidad: $('matUnidad').value,
+      precio: $('matPrecio').value, minimo: $('matMinimo').value, stock: $('matStock').value,
+      ubicacion: $('matUbicacion').value, nota: $('matNota').value,
+      peso: ($('matPeso').value.match(/[\d.,]+/) || [''])[0].replace(/\.(?=\d{3})/g, '').replace(',', '.'),
     });
-    if (r.ok) location.reload(); else document.getElementById('matError').textContent = r.error;
+    if (r.ok) location.reload(); else $('matError').textContent = r.error;
   });
 })();
 </script>

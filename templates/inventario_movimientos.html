@@ -1,57 +1,76 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="page-title">
-  <div>
-    {% if material %}<a class="volver" href="/inventario">&larr; Materiales</a>{% endif %}
-    <h1>{% if material %}Historial: {{ nombre_material }}{% else %}Movimientos del almacén{% endif %}</h1>
-    <p>Cada entrada, entrega o conteo queda aquí con el stock que quedó después.</p>
+{% set iconos = {"entrada": "＋", "entrega": "−", "ajuste": "🔢"} %}
+<div class="inv">
+  <div class="inv-cabeza">
+    <div>
+      {% if material %}<a class="volver" href="/inventario">&larr; Materiales</a>{% endif %}
+      <h1>🕑 {% if material %}{{ nombre_material }}{% else %}Movimientos del almacén{% endif %}</h1>
+      <p class="inv-sub">Todo lo que entró, salió o se contó, con lo que quedó después.</p>
+    </div>
   </div>
-</div>
 
-{% include "_inventario_tabs.html" %}
+  {% include "_inventario_tabs.html" %}
 
-<form class="section" method="get" style="padding:14px; display:flex; gap:10px; flex-wrap:wrap; align-items:end">
-  {% if material %}<input type="hidden" name="material" value="{{ material }}">{% endif %}
-  <label style="display:grid; gap:4px; font-weight:600; font-size:.88rem">Tipo
-    <select name="tipo" style="padding:9px 12px; border:1px solid var(--border-color); border-radius:10px">
-      <option value="">Todos</option>
-      {% for k, v in tipos.items() %}<option value="{{ k }}" {% if tipo == k %}selected{% endif %}>{{ v }}</option>{% endfor %}
-    </select></label>
-  <label style="display:grid; gap:4px; font-weight:600; font-size:.88rem">Desde
-    <input type="date" name="desde" value="{{ desde }}" style="padding:8px 12px; border:1px solid var(--border-color); border-radius:10px"></label>
-  <label style="display:grid; gap:4px; font-weight:600; font-size:.88rem">Hasta
-    <input type="date" name="hasta" value="{{ hasta }}" style="padding:8px 12px; border:1px solid var(--border-color); border-radius:10px"></label>
-  <button class="btn btn-primary">Filtrar</button>
-  {% if tipo or desde or hasta %}<a class="btn btn-edit" href="/inventario/movimientos{% if material %}?material={{ material }}{% endif %}">Quitar filtros</a>{% endif %}
-</form>
+  <form method="get" class="inv-filtros">
+    {% if material %}<input type="hidden" name="material" value="{{ material }}">{% endif %}
+    <div class="inv-chips">
+      <button name="tipo" value="" class="{{ 'activo' if not tipo else '' }}">Todos</button>
+      {% for k, v in tipos.items() %}<button name="tipo" value="{{ k }}" class="{{ 'activo' if tipo == k else '' }}">{{ iconos[k] }} {{ v }}</button>{% endfor %}
+    </div>
+    <div class="inv-fechas">
+      <label>Desde<input type="date" name="desde" value="{{ desde }}"></label>
+      <label>Hasta<input type="date" name="hasta" value="{{ hasta }}"></label>
+      <button class="inv-btn primario" name="tipo" value="{{ tipo }}">Ver</button>
+      {% if tipo or desde or hasta %}<a class="inv-btn suave" href="/inventario/movimientos{% if material %}?material={{ material }}{% endif %}">Quitar filtros</a>{% endif %}
+    </div>
+  </form>
 
-{% if not movs %}
-  <div class="vacio" style="margin-top:16px"><div class="vacio-icono">📦</div><h2>Sin movimientos</h2><p>Todavía no hay entradas ni entregas con esos filtros.</p></div>
-{% else %}
-<div class="section" style="padding:8px; margin-top:16px">
-  <div class="table-container" style="overflow-x:auto">
-    <table class="data-table">
-      <thead><tr><th>Fecha</th>{% if not material %}<th>Material</th>{% endif %}<th>Tipo</th><th class="num">Cantidad</th>
-        <th class="num">Quedó</th><th>A quién / para qué</th><th>Nota</th><th>Registró</th></tr></thead>
-      <tbody>
-      {% for m in movs %}
-        <tr>
-          <td>{{ m.fecha }}</td>
-          {% if not material %}<td><a href="/inventario/movimientos?material={{ m.material_id }}">{{ m.material }}</a></td>{% endif %}
-          <td>{{ m.tipo }}</td>
-          <td class="num {{ 'negativo' if m.cantidad < 0 else '' }}"><b>{{ '+' if m.cantidad > 0 else '' }}{{ fmt(m.cantidad) }}</b> <small class="muted">{{ m.unidad }}</small>
-            {% if m.precio is not none %}<br><small class="muted">{{ pesos(m.precio) }} c/u</small>{% endif %}</td>
-          <td class="num">{{ fmt(m.stock) }}</td>
-          <td>{{ m.destino }}</td>
-          <td><small>{{ m.nota }}</small></td>
-          <td><small class="muted">{{ m.usuario }}</small></td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
+  {% if not movs %}
+    <div class="inv-vacio">📦 Sin movimientos con esos filtros.</div>
+  {% else %}
+  <div class="inv-movs">
+    {% for m in movs %}
+    <article class="inv-mov {{ m.clase }}">
+      <div class="inv-mov-cant {{ 'negativo' if m.cantidad < 0 else '' }}">
+        <b>{{ '+' if m.cantidad > 0 else '' }}{{ fmt(m.cantidad) }}</b><small>{{ m.unidad }}</small>
+      </div>
+      <div class="inv-mov-info">
+        {% if not material %}<a class="inv-mov-mat" href="/inventario/movimientos?material={{ m.material_id }}">{{ m.material }}</a>{% endif %}
+        <div><span class="inv-mov-tipo">{{ iconos.get(m.clase, '') }} {{ m.tipo }}</span>{% if m.destino %} · {{ m.destino }}{% endif %}</div>
+        {% if m.nota %}<div class="inv-mat-nota">{{ m.nota }}</div>{% endif %}
+        <div class="inv-mat-nota">{{ m.fecha }}{% if m.usuario %} · {{ m.usuario }}{% endif %}{% if m.precio is not none %} · {{ pesos(m.precio) }} c/u{% endif %}</div>
+      </div>
+      <div class="inv-mov-queda"><small>Quedó</small><b>{{ fmt(m.stock) }}</b></div>
+    </article>
+    {% endfor %}
   </div>
-  {% if movs|length == 500 %}<p class="ayuda" style="margin:10px">Se muestran los últimos 500. Use las fechas para ver otros.</p>{% endif %}
+  {% if movs|length == 500 %}<p class="inv-contador">Se muestran los últimos 500. Use las fechas para ver otros.</p>{% endif %}
+  {% endif %}
 </div>
-{% endif %}
+<style>
+  .inv-filtros { display: grid; gap: 10px; margin-bottom: 16px; }
+  .inv-chips { display: flex; gap: 8px; flex-wrap: wrap; }
+  .inv-chips button { min-height: 44px; padding: 0 16px; border-radius: 999px; border: 1px solid var(--inv-borde); background: #fff;
+    font: inherit; font-weight: 700; cursor: pointer; }
+  .inv-chips button.activo { background: var(--inv-verde); color: #fff; border-color: var(--inv-verde); }
+  .inv-fechas { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
+  .inv-fechas label { display: grid; gap: 4px; font-weight: 700; font-size: .9rem; }
+  .inv-fechas input { min-height: 44px; min-width: 150px; padding: 0 10px; border: 1px solid var(--inv-borde); border-radius: 12px; font: inherit; }
+  .inv-movs { display: grid; gap: 10px; }
+  .inv-mov { display: grid; grid-template-columns: 96px 1fr auto; gap: 12px; align-items: center; background: #fff;
+    border: 1px solid var(--inv-borde); border-radius: 14px; padding: 12px; }
+  .inv-mov-cant { text-align: center; border-radius: 12px; padding: 8px 4px; background: var(--inv-verde-claro); color: var(--inv-verde); }
+  .inv-mov.entrega .inv-mov-cant { background: var(--inv-sale-claro); color: var(--inv-sale); }
+  .inv-mov.ajuste .inv-mov-cant { background: #f1f5f9; color: #334155; }
+  .inv-mov-cant b { display: block; font-size: 1.45rem; line-height: 1.1; }
+  .inv-mov-cant small { font-weight: 700; }
+  .inv-mov-mat { font-weight: 800; color: var(--inv-texto); text-decoration: none; display: block; }
+  .inv-mov-tipo { font-weight: 700; }
+  .inv-mov-queda { text-align: right; color: var(--inv-gris); }
+  .inv-mov-queda small { display: block; font-size: .75rem; font-weight: 700; text-transform: uppercase; }
+  .inv-mov-queda b { font-size: 1.2rem; color: var(--inv-texto); }
+  @media (max-width: 760px) { .inv-mov { grid-template-columns: 80px 1fr; } .inv-mov-queda { grid-column: 2; text-align: left; } .inv-mov-queda small { display: inline; margin-right: 6px; } }
+</style>
 {% endblock %}

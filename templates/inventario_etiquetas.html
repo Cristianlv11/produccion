@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 
 {% block content %}
+<div class="inv">
 <style>
   /* Hoja carta con etiquetas de 3 columnas; al imprimir solo salen las etiquetas */
   .hoja { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; background: #fff; border: 1px solid var(--border-color); }
@@ -15,7 +16,7 @@
   .controles input, .controles select { padding: 9px 12px; border: 1px solid var(--border-color); border-radius: 10px; }
   @media print {
     @page { size: letter; margin: 8mm; }
-    .header, .page-title, .inv-tabs, .controles, .no-imprimir { display: none !important; }
+    .header, .page-title, .inv-tabs, .inv-abajo, .controles, .no-imprimir { display: none !important; }
     body, .container { background: #fff !important; padding: 0 !important; margin: 0 !important; max-width: none !important; }
     .hoja { border: none; }
     .etq { border: 1px dashed #bbb; }
@@ -25,7 +26,7 @@
 <div class="page-title">
   <div>
     <a class="volver" href="/inventario">&larr; Materiales</a>
-    <h1>Etiquetas con código de barras</h1>
+    <h1>🏷️ Etiquetas con código de barras</h1>
     <p>Imprima y pegue cada etiqueta en su caja o estante. La pistola lectora lee el código y abre el material en el inventario.</p>
   </div>
   <button class="btn btn-primary no-imprimir" onclick="window.print()" {% if not etiquetas %}disabled{% endif %}>🖨 Imprimir {{ etiquetas|length }} etiqueta{{ 's' if etiquetas|length != 1 }}</button>
@@ -40,8 +41,8 @@
       {% for cat in lista_categorias %}<option {% if categoria == cat %}selected{% endif %}>{{ cat }}</option>{% endfor %}
     </select></label>
   <label>Buscar<input name="buscar" value="{{ buscar }}" placeholder="Ej.: tuerca 3/8"></label>
-  <button class="btn btn-edit">Ver</button>
-  {% if categoria or buscar or ids %}<a class="btn btn-edit" href="/inventario/etiquetas">Quitar filtros</a>{% endif %}
+  <button class="inv-btn suave">Ver</button>
+  {% if categoria or buscar or ids %}<a class="inv-btn suave" href="/inventario/etiquetas">Quitar filtros</a>{% endif %}
 </form>
 
 {% if not etiquetas %}
@@ -58,4 +59,5 @@
     {% endfor %}
   </div>
 {% endif %}
+</div>
 {% endblock %}
